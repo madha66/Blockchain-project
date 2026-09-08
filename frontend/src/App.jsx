@@ -35,8 +35,8 @@ function App() {
             <PoolAnalytics key={`pool-${refresh}`} lendingPoolContract={lendingPool} glpTokenContract={glpToken} account={account} />
           </div>
           <div className="column">
-            <DepositForm lendingPoolContract={lendingPool} fetchBalances={fetchBalances} />
-            <BorrowForm lendingPoolContract={lendingPool} fetchBalances={fetchBalances} />
+            <DepositForm lendingPoolContract={lendingPool} account={account} fetchBalances={fetchBalances} />
+            <BorrowForm lendingPoolContract={lendingPool} creditScoreContract={creditScore} glpTokenContract={glpToken} account={account} fetchBalances={fetchBalances} />
             <RepayForm lendingPoolContract={lendingPool} account={account} fetchBalances={fetchBalances} />
           </div>
         </main>

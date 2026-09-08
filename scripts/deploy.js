@@ -1,4 +1,9 @@
 import hre from "hardhat";
+import fs from "fs";
+import path from "path";
+
+const FRONTEND_CONTRACTS_DIR = path.resolve("frontend/src/contracts");
+const FRONTEND_HELPERS_PATH = path.resolve("frontend/src/utils/contractHelpers.js");
 
 async function main() {
   const [deployer] = await hre.ethers.getSigners();
@@ -33,11 +38,41 @@ async function main() {
   await creditScore.setLendingPool(lendingPoolAddress);
   console.log("LendingPool set as owner in CreditScore");
 
-  console.log("Deployment complete.");
+  console.log("\nDeployment complete.");
   console.log("-----------------------------------------");
   console.log("GLPToken:", glpTokenAddress);
   console.log("CreditScore:", creditScoreAddress);
   console.log("LendingPool:", lendingPoolAddress);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 5. Auto-sync frontend: copy fresh ABIs + update contract addresses
+  // ─────────────────────────────────────────────────────────────────────────
+  console.log("\n[Auto-sync] Copying ABIs to frontend...");
+
+  const contracts = [
+    { name: "GLPToken",     artifact: "contracts/GLPToken.sol/GLPToken.json" },
+    { name: "CreditScore",  artifact: "contracts/CreditScore.sol/CreditScore.json" },
+    { name: "LendingPool",  artifact: "contracts/LendingPool.sol/LendingPool.json" },
+  ];
+
+  fs.mkdirSync(FRONTEND_CONTRACTS_DIR, { recursive: true });
+
+  for (const { name, artifact } of contracts) {
+    const src = path.resolve("artifacts", artifact);
+    const dest = path.join(FRONTEND_CONTRACTS_DIR, `${name}.json`);
+    fs.copyFileSync(src, dest);
+    console.log(`[Auto-sync] Copied ${name}.json`);
+  }
+
+  console.log("[Auto-sync] Updating contractHelpers.js addresses...");
+  const helpers = fs.readFileSync(FRONTEND_HELPERS_PATH, "utf8");
+  const updated = helpers.replace(
+    /export const CONTRACT_ADDRESSES = \{[\s\S]*?\};/,
+    `export const CONTRACT_ADDRESSES = {\n  LendingPool: '${lendingPoolAddress}',\n  CreditScore: '${creditScoreAddress}',\n  GLPToken: '${glpTokenAddress}',\n};`
+  );
+  fs.writeFileSync(FRONTEND_HELPERS_PATH, updated, "utf8");
+  console.log("[Auto-sync] contractHelpers.js updated with new addresses.");
+  console.log("[Auto-sync] Done! Frontend is fully in sync.");
 }
 
 main().catch((error) => {

@@ -5,9 +5,9 @@ import CreditScoreABI from '../contracts/CreditScore.json';
 import GLPTokenABI from '../contracts/GLPToken.json';
 
 export const CONTRACT_ADDRESSES = {
-  LendingPool: '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0',
-  CreditScore: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512',
-  GLPToken: '0x5FbDB2315678afecb367f032d93F642f64180aa3',
+  LendingPool: '0x82e01223d51Eb87e16A03E24687EDF0F294da6f1',
+  CreditScore: '0xCD8a1C3ba11CF5ECfa6267617243239504a98d90',
+  GLPToken: '0xb7278A61aa25c888815aFC32Ad3cC52fF24fE575',
 };
 
 export const getContract = (name, providerOrSigner) => {

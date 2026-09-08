@@ -8,7 +8,7 @@ contract CreditScore is Ownable {
         uint256 repaymentsCount;
         uint256 totalAmountRepaid;
         uint256 joinedAt;
-        uint256 simulatedIncome; // Mocked for Review 2
+        uint256 simulatedIncome;
     }
 
     mapping(address => UserStats) public stats;
@@ -26,15 +26,18 @@ contract CreditScore is Ownable {
         _;
     }
 
-    // Call this when user first interacts
     function initUser(address user) external {
         if (stats[user].joinedAt == 0) {
             stats[user].joinedAt = block.timestamp;
-            stats[user].simulatedIncome = 1000; // Simulated $1000/mo income for now
+            stats[user].simulatedIncome = 1000;
         }
     }
 
     function updateRepayment(address user, uint256 amount) external onlyLendingPool {
+        if (stats[user].joinedAt == 0) {
+            stats[user].joinedAt = block.timestamp;
+            stats[user].simulatedIncome = 1000;
+        }
         stats[user].repaymentsCount += 1;
         stats[user].totalAmountRepaid += amount;
     }
@@ -45,40 +48,36 @@ contract CreditScore is Ownable {
         }
     }
 
-    // Simplified scoring logic returning 0-100
-    // Real implementation would scale to decimals, keeping it simple for Review 2
+    // Dynamic Credit Score Calculation (0 - 100)
     function getScore(address user) public view returns (uint256) {
-        if (stats[user].joinedAt == 0) return 0; // Not initialized or new
+        // Base starting score for any wallet (50/100)
+        uint256 baseScore = 50;
 
-        // Repayments weight (max 40): Cap at 10 repayments for max score here
-        uint256 repayScore = stats[user].repaymentsCount * 4; 
-        if (repayScore > 40) repayScore = 40;
+        // Repayment count score: +10 per successful repayment (max 30 pts)
+        uint256 repayScore = stats[user].repaymentsCount * 10;
+        if (repayScore > 30) repayScore = 30;
 
-        // Amount repaid weight (max 30): Cap at 1 ETH (1e18) for max score
-        uint256 amountScore = (stats[user].totalAmountRepaid * 30) / 1 ether;
-        if (amountScore > 30) amountScore = 30;
+        // Amount repaid score: up to 20 pts (scaled with ETH repaid)
+        uint256 amountScore = (stats[user].totalAmountRepaid * 20) / 1 ether;
+        if (amountScore > 20) amountScore = 20;
 
-        // Income weight (max 20): Using mock income
-        uint256 incomeScore = (stats[user].simulatedIncome * 20) / 2000; // $2000 max income
-        if (incomeScore > 20) incomeScore = 20;
-
-        // Duration weight (max 10): 30 days for max score
-        uint256 daysJoined = (block.timestamp - stats[user].joinedAt) / 1 days;
-        uint256 durationScore = (daysJoined * 10) / 30;
-        if (durationScore > 10) durationScore = 10;
-
-        // Base score for simply joining to allow first loan
-        uint256 totalScore = 45 + repayScore + amountScore + incomeScore + durationScore;
+        uint256 totalScore = baseScore + repayScore + amountScore;
         if (totalScore > 100) totalScore = 100;
 
         return totalScore;
     }
 
+    // Dynamic Borrow Limits based on Credit Score Tier:
+    // Initial / Base Tier (Score 50-60): 0.5 ETH
+    // Tier 2 (Score 61-75): 1.5 ETH
+    // Tier 3 (Score 76-90): 3.0 ETH
+    // Elite Tier (Score 91-100): 5.0 ETH
     function getBorrowLimit(address user) external view returns (uint256) {
         uint256 score = getScore(user);
-        if (score <= 40) return 0;
-        if (score <= 60) return 0.05 ether;
-        if (score <= 80) return 0.1 ether;
-        return 0.2 ether;
+        if (score <= 40) return 0.2 ether;
+        if (score <= 60) return 0.5 ether;   // First-time borrower limit
+        if (score <= 75) return 1.5 ether;   // After 1 repayment
+        if (score <= 90) return 3.0 ether;   // After 2+ repayments
+        return 5.0 ether;                   // Elite reputation
     }
 }

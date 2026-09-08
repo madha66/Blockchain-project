@@ -24,16 +24,52 @@ contract LendingPool is ILendingPool {
         creditScore = CreditScore(_creditScore);
     }
 
+    // When user deposits ETH, if they have an active loan, the deposit first pays down the loan + interest.
+    // Any remaining deposited ETH mints GLP tokens.
     function deposit() external payable override {
         require(msg.value > 0, "Amount must be greater than 0");
-        // Mint GLP 1:1 with ETH for simplicity
-        glpToken.mint(msg.sender, msg.value);
-        emit Deposited(msg.sender, msg.value);
+
+        if (activeLoans[msg.sender] > 0) {
+            uint256 totalDue = getRepaymentAmount(msg.sender);
+
+            if (msg.value < totalDue) {
+                // Partial repayment from deposit
+                uint256 principalPaid = (msg.value * 100) / (100 + INTEREST_RATE);
+                if (principalPaid > activeLoans[msg.sender]) {
+                    principalPaid = activeLoans[msg.sender];
+                }
+                activeLoans[msg.sender] -= principalPaid;
+                totalActiveLoans -= principalPaid;
+
+                creditScore.updateRepayment(msg.sender, msg.value);
+                emit Repaid(msg.sender, msg.value);
+            } else {
+                // Full repayment from deposit
+                uint256 principal = activeLoans[msg.sender];
+                activeLoans[msg.sender] = 0;
+                totalActiveLoans -= principal;
+
+                creditScore.updateRepayment(msg.sender, totalDue);
+                emit Repaid(msg.sender, totalDue);
+
+                // Mint GLP for any excess ETH above the loan repayment
+                uint256 excess = msg.value - totalDue;
+                if (excess > 0) {
+                    glpToken.mint(msg.sender, excess);
+                    emit Deposited(msg.sender, excess);
+                }
+            }
+        } else {
+            // Standard deposit — mint GLP 1:1 with ETH
+            glpToken.mint(msg.sender, msg.value);
+            emit Deposited(msg.sender, msg.value);
+        }
     }
 
     function borrow(uint256 amount) external override {
         require(amount > 0, "Amount must be greater than 0");
         require(activeLoans[msg.sender] == 0, "Existing loan must be repaid");
+        require(glpToken.balanceOf(msg.sender) > 0, "Must deposit in pool before borrowing");
         require(address(this).balance >= amount, "Insufficient pool liquidity");
 
         // Initialize user if they are new
@@ -57,34 +93,45 @@ contract LendingPool is ILendingPool {
         return principal + ((principal * INTEREST_RATE) / 100);
     }
 
+    // Allows full or partial repayments
     function repay() external payable override {
         require(activeLoans[msg.sender] > 0, "No active loan");
+        require(msg.value > 0, "Repayment amount must be greater than 0");
+
         uint256 totalDue = getRepaymentAmount(msg.sender);
-        require(msg.value >= totalDue, "Insufficient repayment amount");
 
-        uint256 principal = activeLoans[msg.sender];
-        activeLoans[msg.sender] = 0;
-        totalActiveLoans -= principal;
+        if (msg.value < totalDue) {
+            // Partial repayment
+            uint256 principalPaid = (msg.value * 100) / (100 + INTEREST_RATE);
+            if (principalPaid > activeLoans[msg.sender]) {
+                principalPaid = activeLoans[msg.sender];
+            }
+            activeLoans[msg.sender] -= principalPaid;
+            totalActiveLoans -= principalPaid;
 
-        // Refund excess
-        if (msg.value > totalDue) {
-            (bool success, ) = msg.sender.call{value: msg.value - totalDue}("");
-            require(success, "Refund failed");
+            creditScore.updateRepayment(msg.sender, msg.value);
+            emit Repaid(msg.sender, msg.value);
+        } else {
+            // Full repayment
+            uint256 principal = activeLoans[msg.sender];
+            activeLoans[msg.sender] = 0;
+            totalActiveLoans -= principal;
+
+            creditScore.updateRepayment(msg.sender, totalDue);
+            emit Repaid(msg.sender, totalDue);
+
+            // Refund excess if user sent more than totalDue
+            if (msg.value > totalDue) {
+                (bool success, ) = msg.sender.call{value: msg.value - totalDue}("");
+                require(success, "Refund failed");
+            }
         }
-
-        creditScore.updateRepayment(msg.sender, totalDue);
-
-        emit Repaid(msg.sender, totalDue);
     }
 
     function withdraw(uint256 glpAmount) external override {
         require(glpAmount > 0, "Amount must be greater than 0");
         require(glpToken.balanceOf(msg.sender) >= glpAmount, "Insufficient GLP balance");
         
-        // Calculate pool share value (simplified: assume 1:1 + interest distributed evenly)
-        // For Review 2: 1 GLP = 1 ETH (pool value doesn't strictly grow per share here without complex math)
-        // In a real scenario, ETH returned = glpAmount * (total ETH in pool / total GLP supply)
-        // But let's do exactly that.
         uint256 totalEth = address(this).balance + totalActiveLoans;
         uint256 totalGlp = glpToken.totalSupply();
         uint256 ethToReturn = (glpAmount * totalEth) / totalGlp;
@@ -98,7 +145,7 @@ contract LendingPool is ILendingPool {
 
         emit Withdrawn(msg.sender, ethToReturn);
     }
-    
+
     // Allow the contract to receive ETH (e.g. direct transfers)
     receive() external payable {}
 }

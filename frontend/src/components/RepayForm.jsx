@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { ethers } from 'ethers';
 
 const RepayForm = ({ lendingPoolContract, account, fetchBalances }) => {
   const [dueAmount, setDueAmount] = useState('0');
+  const [repayAmount, setRepayAmount] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -16,35 +18,64 @@ const RepayForm = ({ lendingPoolContract, account, fetchBalances }) => {
       };
       getDue();
     }
-  }, [lendingPoolContract, account, fetchBalances]); // Add fetchBalances to dependency array so it updates on refresh
+  }, [lendingPoolContract, account, fetchBalances]);
 
   if (!lendingPoolContract || dueAmount === '0') {
-    return null; // Hide the repay form completely if they owe nothing!
+    return null; // Hide repay form if no active loan
   }
 
-  const handleRepay = async () => {
-    if (!lendingPoolContract || dueAmount === '0') return;
+  const handleRepay = async (e) => {
+    e.preventDefault();
+    if (!lendingPoolContract || !repayAmount || Number(repayAmount) <= 0) return;
+    
     setLoading(true);
     try {
-      const tx = await lendingPoolContract.repay({ value: dueAmount });
+      const tx = await lendingPoolContract.repay({ value: ethers.parseEther(repayAmount) });
       await tx.wait();
-      alert('Repayment successful!');
-      setDueAmount('0');
+      alert('Repayment successful! Outstanding loan has been reduced.');
+      setRepayAmount('');
       if (fetchBalances) fetchBalances();
     } catch (err) {
       console.error(err);
-      alert('Repayment failed.');
+      alert('Repayment failed: ' + (err.reason || err.message));
     }
     setLoading(false);
+  };
+
+  const setFullAmount = () => {
+    setRepayAmount(ethers.formatEther(dueAmount));
   };
 
   return (
     <div className="card">
       <h3>Repay Loan</h3>
-      <p>Outstanding Amount: {Number(dueAmount) / 1e18} ETH</p>
-      <button onClick={handleRepay} disabled={loading || dueAmount === '0'}>
-        {loading ? 'Repaying...' : 'Repay Full Amount'}
-      </button>
+      <p>
+        Outstanding (with 5% interest): <strong>{ethers.formatEther(dueAmount)} ETH</strong>
+      </p>
+      <form onSubmit={handleRepay}>
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+          <input
+            type="number"
+            step="0.0001"
+            placeholder="Amount to repay in ETH"
+            value={repayAmount}
+            onChange={(e) => setRepayAmount(e.target.value)}
+            disabled={loading}
+            style={{ flex: 1 }}
+          />
+          <button
+            type="button"
+            onClick={setFullAmount}
+            disabled={loading}
+            style={{ padding: '6px 12px', fontSize: '0.85rem' }}
+          >
+            Pay Full
+          </button>
+        </div>
+        <button type="submit" disabled={loading || !repayAmount || Number(repayAmount) <= 0}>
+          {loading ? 'Processing...' : '💳 Submit Repayment'}
+        </button>
+      </form>
     </div>
   );
 };

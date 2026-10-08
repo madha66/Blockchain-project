@@ -1,0 +1,112 @@
+/* ============================================================
+   POOL PAGE STYLES
+   ============================================================ */
+
+.pool-container {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.pool-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.pool-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+
+.chart-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.chart-wrapper {
+  position: relative;
+  width: 100%;
+  height: 280px;
+}
+
+.recent-events-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.events-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.event-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-primary);
+  font-size: 0.88rem;
+}
+
+.event-type-badge {
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.event-deposit {
+  background: var(--success-bg);
+  color: var(--success);
+  border: 1px solid rgba(0, 192, 135, 0.3);
+}
+
+.event-borrow {
+  background: rgba(255, 176, 32, 0.1);
+  color: var(--warning);
+  border: 1px solid rgba(255, 176, 32, 0.3);
+}
+
+.event-repay {
+  background: var(--gold-glow);
+  color: var(--gold-primary);
+  border: 1px solid var(--gold-border);
+}
+
+.event-withdraw {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--info);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+@media (max-width: 1100px) {
+  .pool-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .pool-stats-grid {
+    grid-template-columns: 1fr;
+  }
+}

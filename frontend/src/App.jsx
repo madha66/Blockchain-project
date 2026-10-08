@@ -1,51 +1,41 @@
-import React, { useState, useEffect } from 'react';
-import './index.css';
+import React from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { useWallet } from './hooks/useWallet';
 import { useContract } from './hooks/useContract';
-import ConnectWallet from './components/ConnectWallet';
-import DepositForm from './components/DepositForm';
-import BorrowForm from './components/BorrowForm';
-import RepayForm from './components/RepayForm';
-import CreditScoreCard from './components/CreditScoreCard';
-import PoolAnalytics from './components/PoolAnalytics';
+import LandingPage from './pages/LandingPage';
+import AppLayout from './pages/app/AppLayout';
+import Dashboard from './pages/app/Dashboard';
+import LendPage from './pages/app/LendPage';
+import BorrowPage from './pages/app/BorrowPage';
+import WalletPage from './pages/app/WalletPage';
+import LoansPage from './pages/app/LoansPage';
+import PoolPage from './pages/app/PoolPage';
+import TransactionsPage from './pages/app/TransactionsPage';
 
 function App() {
-  const { account, provider, signer, connectWallet } = useWallet();
-  const [refresh, setRefresh] = useState(0);
+  const wallet = useWallet();
+  const { account, provider, signer } = wallet;
 
   const lendingPool = useContract('LendingPool', signer || provider);
   const creditScore = useContract('CreditScore', signer || provider);
   const glpToken = useContract('GLPToken', signer || provider);
 
-  const fetchBalances = () => {
-    setRefresh(r => r + 1); // trigger re-render in children
-  };
+  const contracts = { lendingPool, creditScore, glpToken };
 
   return (
-    <div className="app-container">
-      <header>
-        <h1>Decentralized Micro-Lending</h1>
-        <ConnectWallet account={account} connectWallet={connectWallet} />
-      </header>
-      
-      {account ? (
-        <main className="dashboard">
-          <div className="column">
-            <CreditScoreCard key={`score-${refresh}`} creditScoreContract={creditScore} account={account} />
-            <PoolAnalytics key={`pool-${refresh}`} lendingPoolContract={lendingPool} glpTokenContract={glpToken} account={account} />
-          </div>
-          <div className="column">
-            <DepositForm lendingPoolContract={lendingPool} account={account} fetchBalances={fetchBalances} />
-            <BorrowForm lendingPoolContract={lendingPool} creditScoreContract={creditScore} glpTokenContract={glpToken} account={account} fetchBalances={fetchBalances} />
-            <RepayForm lendingPoolContract={lendingPool} account={account} fetchBalances={fetchBalances} />
-          </div>
-        </main>
-      ) : (
-        <div className="welcome">
-          <h2>Please connect your wallet to use the application</h2>
-        </div>
-      )}
-    </div>
+    <Routes>
+      <Route path="/" element={<LandingPage wallet={wallet} />} />
+      <Route path="/app" element={<AppLayout wallet={wallet} contracts={contracts} />}>
+        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="dashboard" element={<Dashboard wallet={wallet} contracts={contracts} />} />
+        <Route path="lend" element={<LendPage wallet={wallet} contracts={contracts} />} />
+        <Route path="borrow" element={<BorrowPage wallet={wallet} contracts={contracts} />} />
+        <Route path="wallet" element={<WalletPage wallet={wallet} contracts={contracts} />} />
+        <Route path="loans" element={<LoansPage wallet={wallet} contracts={contracts} />} />
+        <Route path="pool" element={<PoolPage wallet={wallet} contracts={contracts} />} />
+        <Route path="transactions" element={<TransactionsPage wallet={wallet} contracts={contracts} />} />
+      </Route>
+    </Routes>
   );
 }
 

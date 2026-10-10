@@ -194,23 +194,23 @@ This test plan validates cross-client reactivity between **Client A** (Lender / 
   - In Client B browser, the **Pool** page (`/app/pool`) and **Transactions** page (`/app/transactions`) immediately show the `Deposited` event without page reload.
 
 ### Test 2: Borrower Share Requirement (Client B Pre-Condition)
-- **Action**: In Client A, transfer a nominal amount (e.g. `0.05 GLP`) to Client B's address, or have Client B deposit `0.05 ETH` on the Lend page.
-- **Expected Result**: Client B now holds GLP shares, unlocking borrowing eligibility.
+- **Action**: In Client B browser, navigate to the **Lend** page (`/app/lend`) and deposit a nominal `0.05 ETH` to mint GLP shares. *(Note: GLPToken supports standard ERC-20 transfers on-chain, but the dApp UI interface focuses on deposit/withdrawal actions).*
+- **Expected Result**: Client B now holds GLP shares, satisfying the `"Must deposit in pool before borrowing"` prerequisite.
 
 ### Test 3: Loan Origination with Tenure Selection (Client B)
-- **Action**: In Client B browser, navigate to **Borrow** (`/app/borrow`). Select a `14-day` tenure and enter `0.3 ETH`.
+- **Action**: In Client B browser, navigate to **Borrow** (`/app/borrow`). Select a `14-day` tenure and enter `0.3 ETH` (within Client B's initial `0.5 ETH` credit limit).
 - **Expected Result**:
   - Live preview calculates dynamic APR based on post-borrow utilization.
   - Borrower submits transaction. Wallet confirms.
   - Client B receives `0.3 ETH`. Active loan of `0.3 ETH` appears on **Loans** page (`/app/loans`).
   - Client A's dashboard reflects increased pool utilization and `Borrowed` event appears in live activity.
 
-### Test 4: Utilization Cap Enforcement (Client B)
-- **Action**: Attempt to borrow an amount that pushes pool utilization beyond $90.00\%$ (e.g., attempt to borrow `1.8 ETH`).
-- **Expected Result**:
-  - Frontend pre-check warns of exceeding 90% utilization cap.
-  - If transaction is forced, the contract reverts with `"Utilization exceeds 90% cap"`.
-  - No loan is created, and no corrupted transaction appears in the confirmed event log.
+### Test 4: Utilization Cap and Credit Limit Rejection Enforcement (Client B)
+- **Action**: 
+  - **Scenario A (Credit Limit Rejection)**: Enter `1.8 ETH`.
+    - *Expected Result*: The UI warns that the amount exceeds the user's `0.5 ETH` credit limit. If forced on-chain, the contract reverts with `"Borrow amount exceeds credit limit"`.
+  - **Scenario B (90% Utilization Cap Rejection)**: If pool capital is small (e.g. pool total capital is `0.35 ETH` where the 90% cap is `0.315 ETH`), attempting to borrow `0.33 ETH` (which is within the `0.5 ETH` credit limit) strictly reverts with `"Utilization exceeds 90% cap"`.
+- **Expected Result**: In both cases, no loan is created, and no failed transaction corrupts the confirmed event log.
 
 ### Test 5: Loan Repayment with Excess Refund (Client B)
 - **Action**: In Client B browser, navigate to **Loans** (`/app/loans`). Submit repayment with a slight overpayment (e.g. `0.35 ETH`).

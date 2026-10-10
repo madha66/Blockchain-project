@@ -11,12 +11,11 @@ import {
   Legend,
   ArcElement
 } from 'chart.js';
-import { Doughnut, Line } from 'react-chartjs-2';
+import { Doughnut } from 'react-chartjs-2';
 import { 
   HiCollection, 
   HiRefresh, 
   HiShieldCheck, 
-  HiTrendingUp, 
   HiTrendingDown, 
   HiSparkles 
 } from 'react-icons/hi';
@@ -143,7 +142,7 @@ const PoolPage = ({ wallet, contracts, eventSync }) => {
             <div className="stat-icon" style={{ color: 'var(--success)' }}><HiShieldCheck size={18} /></div>
           </div>
           <div className="stat-value">{poolEth}<span className="stat-unit">ETH</span></div>
-          <p className="stat-desc">Ready for borrow disbursement</p>
+          <p className="stat-desc">Free cash (Reserve: {insuranceReserve} ETH)</p>
         </div>
 
         <div className="stat-card">

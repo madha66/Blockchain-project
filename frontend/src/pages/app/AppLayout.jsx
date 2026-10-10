@@ -13,7 +13,7 @@ const navItems = [
   { path: '/app/transactions', label: 'Transactions', icon: <HiChartBar size={20} /> },
 ];
 
-const AppLayout = ({ wallet, contracts, eventSync }) => {
+const AppLayout = ({ wallet, eventSync }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { account, connectWallet } = wallet;
   const navigate = useNavigate();

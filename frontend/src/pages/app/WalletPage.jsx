@@ -2,15 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ethers } from 'ethers';
 import { QRCodeSVG } from 'qrcode.react';
 import { 
-  HiCreditCard, 
   HiDuplicate, 
   HiCheck, 
   HiRefresh, 
   HiGlobeAlt, 
   HiShieldCheck,
   HiTrendingUp,
-  HiTrendingDown,
-  HiExternalLink
+  HiTrendingDown
 } from 'react-icons/hi';
 import { CONTRACT_ADDRESSES } from '../../utils/contractHelpers';
 import './WalletPage.css';

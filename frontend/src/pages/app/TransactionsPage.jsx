@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
 import { 
-  HiChartBar, 
   HiDuplicate, 
   HiCheck, 
   HiCheckCircle,
-  HiClock
+  HiClock,
+  HiUser,
+  HiGlobeAlt
 } from 'react-icons/hi';
 import './TransactionsPage.css';
 
-const TransactionsPage = ({ wallet, contracts, eventSync }) => {
+const TransactionsPage = ({ wallet, eventSync }) => {
   const [filter, setFilter] = useState('all');
+  const [onlyMine, setOnlyMine] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
 
   const rawEvents = eventSync?.events || [];
@@ -20,9 +22,14 @@ const TransactionsPage = ({ wallet, contracts, eventSync }) => {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const account = wallet?.account?.toLowerCase();
+  const userScoped = (onlyMine && account)
+    ? rawEvents.filter(tx => tx.user && tx.user.toLowerCase() === account)
+    : rawEvents;
+
   const filtered = filter === 'all' 
-    ? rawEvents 
-    : rawEvents.filter(tx => tx.type === filter);
+    ? userScoped 
+    : userScoped.filter(tx => tx.type === filter);
 
   return (
     <div className="tx-container">
@@ -36,6 +43,26 @@ const TransactionsPage = ({ wallet, contracts, eventSync }) => {
             Comprehensive immutable ledger of all smart contract calls, loans, and liquidity events confirmed on-chain.
           </p>
         </div>
+
+        {/* Account Scope Toggle */}
+        {wallet?.account && (
+          <div style={{ display: 'flex', gap: '8px', background: 'var(--bg-secondary)', padding: '4px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-primary)' }}>
+            <button
+              className={`btn btn-sm ${!onlyMine ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ fontSize: '0.8rem', padding: '6px 12px' }}
+              onClick={() => setOnlyMine(false)}
+            >
+              <HiGlobeAlt size={16} /> All Network Events
+            </button>
+            <button
+              className={`btn btn-sm ${onlyMine ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ fontSize: '0.8rem', padding: '6px 12px' }}
+              onClick={() => setOnlyMine(true)}
+            >
+              <HiUser size={16} /> My Activity Only
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Controls / Filter Pills */}

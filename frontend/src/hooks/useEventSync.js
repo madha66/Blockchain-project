@@ -112,10 +112,20 @@ export const useEventSync = (walletProvider) => {
       }
 
       try {
+        // 2. Target network chain ID validation
+        const targetChainId = import.meta.env.VITE_CHAIN_ID ? BigInt(import.meta.env.VITE_CHAIN_ID) : 31337n;
+        const network = await syncProvider.getNetwork().catch(() => null);
+        if (network && network.chainId !== targetChainId) {
+          console.warn(`Chain mismatch: expected ${targetChainId}, got ${network.chainId}`);
+          setConnectionMode('chain-mismatch');
+          setIsLive(false);
+          return;
+        }
+
         const poolContract = getContract('LendingPool', syncProvider);
         const iface = poolContract.interface;
 
-        // 2. Historical event backfill from starting block
+        // 3. Historical event backfill from starting block
         const fromBlock = import.meta.env.VITE_START_BLOCK ? Number(import.meta.env.VITE_START_BLOCK) : 0;
         
         const filter = {
@@ -132,17 +142,30 @@ export const useEventSync = (walletProvider) => {
         if (active && historicalLogs.length > 0) {
           const parsedList = [];
           for (const log of historicalLogs) {
-            const item = await processLog(iface, log);
-            if (item) parsedList.push(item);
+            if (!log.removed) {
+              const item = await processLog(iface, log);
+              if (item) parsedList.push(item);
+            }
           }
           parsedList.sort((a, b) => b.blockNumber - a.blockNumber || b.logIndex - a.logIndex);
           setEvents(parsedList);
           setSyncTick((t) => t + 1);
         }
 
-        // 3. Real-time event subscription
+        // 4. Real-time event subscription with reorg / removed-log handling
         const handleNewLog = async (log) => {
           if (!active) return;
+          const txHash = log.transactionHash;
+          const logIndex = log.index ?? log.logIndex ?? 0;
+          const key = `${txHash}-${logIndex}`;
+
+          if (log.removed) {
+            seenEventKeys.current.delete(key);
+            setEvents((prev) => prev.filter((e) => e.id !== key));
+            setSyncTick((t) => t + 1);
+            return;
+          }
+
           const parsed = await processLog(iface, log);
           if (parsed) {
             setEvents((prev) => [parsed, ...prev.filter((e) => e.id !== parsed.id)]);

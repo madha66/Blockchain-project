@@ -34,6 +34,12 @@ class EventSyncEngine {
     this.isConnected = true;
   }
 
+  handleRemovedLog(keyOrTxHash, maybeLogIndex) {
+    const key = maybeLogIndex !== undefined ? `${keyOrTxHash}-${maybeLogIndex}` : keyOrTxHash;
+    this.seenLogKeys.delete(key);
+    this.confirmedEvents = this.confirmedEvents.filter(e => e.key !== key);
+  }
+
   async syncEvents(fromBlock, toBlock, currentNetworkChainId = 31337) {
     // Network validation
     if (currentNetworkChainId !== this.targetChainId) {
@@ -344,5 +350,23 @@ describe("GigLend V2 Cross-Client Event Synchronization Suite", function () {
     await expect(
       clientA.syncEvents(startBlock, b, 1) // Mainnet chain ID 1 instead of 31337
     ).to.be.rejectedWith("Chain mismatch: expected 31337, got 1");
+  });
+
+  it("9. Handles chain reorganizations and purges removed logs from confirmed state", async function () {
+    // Alice deposits 1.0 ETH
+    const tx = await lendingPool.connect(alice).deposit({ value: ethers.parseEther("1.0") });
+    const receipt = await tx.wait();
+
+    // Initial sync confirms the event
+    await clientA.syncEvents(receipt.blockNumber, receipt.blockNumber);
+    expect(clientA.getProtocolEvents().length).to.equal(1);
+
+    // Simulate reorg delivery with removed: true
+    const event = clientA.getProtocolEvents()[0];
+    clientA.handleRemovedLog(event.key);
+
+    // Confirmed event is purged and key is removed from seen set
+    expect(clientA.getProtocolEvents().length).to.equal(0);
+    expect(clientA.seenLogKeys.has(event.key)).to.be.false;
   });
 });

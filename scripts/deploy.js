@@ -68,7 +68,7 @@ async function main() {
   const helpers = fs.readFileSync(FRONTEND_HELPERS_PATH, "utf8");
   const updated = helpers.replace(
     /export const CONTRACT_ADDRESSES = \{[\s\S]*?\};/,
-    `export const CONTRACT_ADDRESSES = {\n  LendingPool: '${lendingPoolAddress}',\n  CreditScore: '${creditScoreAddress}',\n  GLPToken: '${glpTokenAddress}',\n};`
+    `export const CONTRACT_ADDRESSES = {\n  LendingPool: import.meta.env.VITE_LENDING_POOL_ADDRESS || '${lendingPoolAddress}',\n  CreditScore: import.meta.env.VITE_CREDIT_SCORE_ADDRESS || '${creditScoreAddress}',\n  GLPToken: import.meta.env.VITE_GLP_TOKEN_ADDRESS || '${glpTokenAddress}',\n};`
   );
   fs.writeFileSync(FRONTEND_HELPERS_PATH, updated, "utf8");
   console.log("[Auto-sync] contractHelpers.js updated with new addresses.");

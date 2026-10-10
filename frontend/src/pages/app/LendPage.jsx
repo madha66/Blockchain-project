@@ -1,12 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ethers } from 'ethers';
 import { 
-  HiTrendingUp, 
-  HiDownload, 
   HiInformationCircle, 
   HiCheckCircle, 
-  HiExclamationCircle,
-  HiLightningBolt,
+  HiExclamationCircle, 
+  HiLightningBolt, 
   HiShieldCheck 
 } from 'react-icons/hi';
 import './LendPage.css';

@@ -15,7 +15,7 @@ import {
 } from 'react-icons/hi';
 import './Dashboard.css';
 
-const Dashboard = ({ wallet, contracts }) => {
+const Dashboard = ({ wallet, contracts, eventSync }) => {
   const { account, provider } = wallet;
   const { lendingPool, creditScore, glpToken } = contracts;
   const navigate = useNavigate();
@@ -28,6 +28,7 @@ const Dashboard = ({ wallet, contracts }) => {
   const [activeLoan, setActiveLoan] = useState('0.0000');
   const [dueAmount, setDueAmount] = useState('0.0000');
   const [poolLiquidity, setPoolLiquidity] = useState('0.0000');
+  const [insuranceReserve, setInsuranceReserve] = useState('0.0000');
   const [totalPoolLoans, setTotalPoolLoans] = useState('0.0000');
 
   const fetchDashboardData = useCallback(async () => {
@@ -65,8 +66,12 @@ const Dashboard = ({ wallet, contracts }) => {
       if (lendingPool) {
         try {
           const poolAddr = await lendingPool.getAddress();
-          const poolBal = await provider.getBalance(poolAddr);
-          setPoolLiquidity(Number(ethers.formatEther(poolBal)).toFixed(4));
+          const rawBal = await provider.getBalance(poolAddr);
+          const reserve = await lendingPool.insuranceReserve();
+          setInsuranceReserve(Number(ethers.formatEther(reserve)).toFixed(4));
+
+          const freeCash = rawBal > reserve ? rawBal - reserve : 0n;
+          setPoolLiquidity(Number(ethers.formatEther(freeCash)).toFixed(4));
 
           const userLoan = await lendingPool.activeLoans(account);
           setActiveLoan(Number(ethers.formatEther(userLoan)).toFixed(4));
@@ -89,7 +94,7 @@ const Dashboard = ({ wallet, contracts }) => {
 
   useEffect(() => {
     fetchDashboardData();
-  }, [fetchDashboardData]);
+  }, [fetchDashboardData, eventSync?.syncTick]);
 
   // Determine credit tier label
   const getTierLabel = (scoreVal) => {
@@ -322,6 +327,13 @@ const Dashboard = ({ wallet, contracts }) => {
                 <span className="pool-metric-label">Total Active Borrowed</span>
                 <span className="pool-metric-value" style={{ color: 'var(--warning)' }}>
                   {totalPoolLoans} ETH
+                </span>
+              </div>
+
+              <div className="pool-metric-row">
+                <span className="pool-metric-label">Insurance Reserve</span>
+                <span className="pool-metric-value" style={{ color: 'var(--brand-primary)' }}>
+                  {insuranceReserve} ETH
                 </span>
               </div>
 

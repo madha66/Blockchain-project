@@ -11,7 +11,7 @@ import {
 } from 'react-icons/hi';
 import './LendPage.css';
 
-const LendPage = ({ wallet, contracts }) => {
+const LendPage = ({ wallet, contracts, eventSync }) => {
   const { account, provider } = wallet;
   const { lendingPool, glpToken } = contracts;
 
@@ -22,6 +22,7 @@ const LendPage = ({ wallet, contracts }) => {
   const [glpBalance, setGlpBalance] = useState('0.0000');
   const [dueAmount, setDueAmount] = useState('0.0000');
   const [poolLiquidity, setPoolLiquidity] = useState('0.0000');
+  const [insuranceReserve, setInsuranceReserve] = useState('0.0000');
   const [statusMsg, setStatusMsg] = useState(null);
 
   const fetchBalances = useCallback(async () => {
@@ -40,8 +41,12 @@ const LendPage = ({ wallet, contracts }) => {
         setDueAmount(Number(ethers.formatEther(due)).toFixed(4));
 
         const poolAddr = await lendingPool.getAddress();
-        const poolBal = await provider.getBalance(poolAddr);
-        setPoolLiquidity(Number(ethers.formatEther(poolBal)).toFixed(4));
+        const rawBal = await provider.getBalance(poolAddr);
+        const reserve = await lendingPool.insuranceReserve();
+        setInsuranceReserve(Number(ethers.formatEther(reserve)).toFixed(4));
+
+        const freeCash = rawBal > reserve ? rawBal - reserve : 0n;
+        setPoolLiquidity(Number(ethers.formatEther(freeCash)).toFixed(4));
       }
     } catch (e) {
       console.error('Error fetching lend page balances:', e);
@@ -50,7 +55,7 @@ const LendPage = ({ wallet, contracts }) => {
 
   useEffect(() => {
     fetchBalances();
-  }, [fetchBalances]);
+  }, [fetchBalances, eventSync?.syncTick]);
 
   // Handle Percentage Quick Select
   const handlePercent = (pct) => {
@@ -291,6 +296,10 @@ const LendPage = ({ wallet, contracts }) => {
               <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '10px', borderBottom: '1px solid var(--border-primary)' }}>
                 <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Available ETH Pool Reserve</span>
                 <strong style={{ color: 'var(--success)' }}>{poolLiquidity} ETH</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '10px', borderBottom: '1px solid var(--border-primary)' }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Insurance Reserve</span>
+                <strong style={{ color: 'var(--brand-primary)' }}>{insuranceReserve} ETH</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '10px', borderBottom: '1px solid var(--border-primary)' }}>
                 <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Your Staked GLP Balance</span>

@@ -33,20 +33,16 @@ ChartJS.register(
   ArcElement
 );
 
-const PoolPage = ({ wallet, contracts }) => {
+const PoolPage = ({ wallet, contracts, eventSync }) => {
   const { account, provider } = wallet;
   const { lendingPool, glpToken } = contracts;
 
   const [loading, setLoading] = useState(false);
   const [poolEth, setPoolEth] = useState('0.0000');
+  const [insuranceReserve, setInsuranceReserve] = useState('0.0000');
   const [totalLoans, setTotalLoans] = useState('0.0000');
   const [totalGlpSupply, setTotalGlpSupply] = useState('0.0000');
   const [userDeposit, setUserDeposit] = useState('0.0000');
-  const [events, setEvents] = useState([
-    { type: 'deposit', user: '0x7099...79C8', amount: '2.5000 ETH', time: '10m ago' },
-    { type: 'borrow', user: '0x3C44...9081', amount: '0.5000 ETH', time: '25m ago' },
-    { type: 'repay', user: '0x90F7...4bE1', amount: '0.5250 ETH', time: '1h ago' }
-  ]);
 
   const fetchPoolData = useCallback(async () => {
     if (!lendingPool) return;
@@ -56,8 +52,12 @@ const PoolPage = ({ wallet, contracts }) => {
       const prov = lendingPool.runner?.provider || provider;
 
       if (prov) {
-        const bal = await prov.getBalance(poolAddr);
-        setPoolEth(Number(ethers.formatEther(bal)).toFixed(4));
+        const rawBal = await prov.getBalance(poolAddr);
+        const reserve = await lendingPool.insuranceReserve();
+        setInsuranceReserve(Number(ethers.formatEther(reserve)).toFixed(4));
+
+        const freeCash = rawBal > reserve ? rawBal - reserve : 0n;
+        setPoolEth(Number(ethers.formatEther(freeCash)).toFixed(4));
       }
 
       const loans = await lendingPool.totalActiveLoans();
@@ -81,37 +81,9 @@ const PoolPage = ({ wallet, contracts }) => {
 
   useEffect(() => {
     fetchPoolData();
+  }, [fetchPoolData, eventSync?.syncTick]);
 
-    // Listen for live events if contract is active
-    if (lendingPool) {
-      const handleEvent = (type) => (user, amount) => {
-        const formattedAmount = `${Number(ethers.formatEther(amount)).toFixed(4)} ETH`;
-        const shortUser = `${user.slice(0, 6)}...${user.slice(-4)}`;
-        setEvents(prev => [
-          { type, user: shortUser, amount: formattedAmount, time: 'Just now' },
-          ...prev.slice(0, 7)
-        ]);
-        fetchPoolData();
-      };
-
-      const onDeposit = handleEvent('deposit');
-      const onBorrow = handleEvent('borrow');
-      const onRepay = handleEvent('repay');
-      const onWithdraw = handleEvent('withdraw');
-
-      lendingPool.on('Deposited', onDeposit);
-      lendingPool.on('Borrowed', onBorrow);
-      lendingPool.on('Repaid', onRepay);
-      lendingPool.on('Withdrawn', onWithdraw);
-
-      return () => {
-        lendingPool.off('Deposited', onDeposit);
-        lendingPool.off('Borrowed', onBorrow);
-        lendingPool.off('Repaid', onRepay);
-        lendingPool.off('Withdrawn', onWithdraw);
-      };
-    }
-  }, [lendingPool, fetchPoolData]);
+  const liveEvents = (eventSync?.events || []).slice(0, 10);
 
   const totalPoolVal = (Number(poolEth) + Number(totalLoans)).toFixed(4);
   const utilization = Number(totalPoolVal) > 0 ? ((Number(totalLoans) / Number(totalPoolVal)) * 100).toFixed(1) : '0.0';
@@ -237,18 +209,26 @@ const PoolPage = ({ wallet, contracts }) => {
           </div>
 
           <div className="events-list">
-            {events.map((evt, idx) => (
-              <div key={idx} className="event-row">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <span className={`event-type-badge event-${evt.type}`}>{evt.type}</span>
-                  <span style={{ fontFamily: 'monospace', color: 'var(--text-primary)' }}>{evt.user}</span>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontWeight: 600, color: 'var(--gold-primary)' }}>{evt.amount}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>{evt.time}</div>
-                </div>
+            {liveEvents.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                No blockchain events recorded yet. Connect and interact to see live updates.
               </div>
-            ))}
+            ) : (
+              liveEvents.map((evt) => (
+                <div key={evt.id} className="event-row">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <span className={`event-type-badge event-${evt.type}`}>{evt.type}</span>
+                    <span style={{ fontFamily: 'monospace', color: 'var(--text-primary)' }}>
+                      {evt.user ? `${evt.user.slice(0, 6)}...${evt.user.slice(-4)}` : 'Pool'}
+                    </span>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontWeight: 600, color: 'var(--gold-primary)' }}>{evt.amount}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>{evt.timestamp}</div>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

@@ -13,7 +13,7 @@ const navItems = [
   { path: '/app/transactions', label: 'Transactions', icon: <HiChartBar size={20} /> },
 ];
 
-const AppLayout = ({ wallet, contracts }) => {
+const AppLayout = ({ wallet, contracts, eventSync }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { account, connectWallet } = wallet;
   const navigate = useNavigate();
@@ -67,7 +67,27 @@ const AppLayout = ({ wallet, contracts }) => {
             <HiMenu size={22} />
           </button>
 
-          <div className="app-header-right">
+          <div className="app-header-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '4px 10px',
+              borderRadius: '20px',
+              fontSize: '0.75rem',
+              background: eventSync?.isLive ? 'rgba(34, 197, 94, 0.12)' : 'rgba(255, 176, 32, 0.12)',
+              color: eventSync?.isLive ? 'var(--success)' : 'var(--warning)',
+              border: `1px solid ${eventSync?.isLive ? 'rgba(34, 197, 94, 0.3)' : 'rgba(255, 176, 32, 0.3)'}`
+            }}>
+              <span style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                background: eventSync?.isLive ? 'var(--success)' : 'var(--warning)'
+              }} />
+              <span>{eventSync?.connectionMode === 'ws' ? 'WebSocket Sync' : 'HTTP Polling Sync'}</span>
+            </div>
+
             {account ? (
               <div className="app-wallet-badge">
                 <span className="app-wallet-dot"></span>

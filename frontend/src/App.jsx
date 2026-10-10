@@ -2,6 +2,7 @@ import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useWallet } from './hooks/useWallet';
 import { useContract } from './hooks/useContract';
+import { useEventSync } from './hooks/useEventSync';
 import LandingPage from './pages/LandingPage';
 import AppLayout from './pages/app/AppLayout';
 import Dashboard from './pages/app/Dashboard';
@@ -21,19 +22,20 @@ function App() {
   const glpToken = useContract('GLPToken', signer || provider);
 
   const contracts = { lendingPool, creditScore, glpToken };
+  const eventSync = useEventSync(provider, account);
 
   return (
     <Routes>
       <Route path="/" element={<LandingPage wallet={wallet} />} />
-      <Route path="/app" element={<AppLayout wallet={wallet} contracts={contracts} />}>
+      <Route path="/app" element={<AppLayout wallet={wallet} contracts={contracts} eventSync={eventSync} />}>
         <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard" element={<Dashboard wallet={wallet} contracts={contracts} />} />
-        <Route path="lend" element={<LendPage wallet={wallet} contracts={contracts} />} />
-        <Route path="borrow" element={<BorrowPage wallet={wallet} contracts={contracts} />} />
-        <Route path="wallet" element={<WalletPage wallet={wallet} contracts={contracts} />} />
-        <Route path="loans" element={<LoansPage wallet={wallet} contracts={contracts} />} />
-        <Route path="pool" element={<PoolPage wallet={wallet} contracts={contracts} />} />
-        <Route path="transactions" element={<TransactionsPage wallet={wallet} contracts={contracts} />} />
+        <Route path="dashboard" element={<Dashboard wallet={wallet} contracts={contracts} eventSync={eventSync} />} />
+        <Route path="lend" element={<LendPage wallet={wallet} contracts={contracts} eventSync={eventSync} />} />
+        <Route path="borrow" element={<BorrowPage wallet={wallet} contracts={contracts} eventSync={eventSync} />} />
+        <Route path="wallet" element={<WalletPage wallet={wallet} contracts={contracts} eventSync={eventSync} />} />
+        <Route path="loans" element={<LoansPage wallet={wallet} contracts={contracts} eventSync={eventSync} />} />
+        <Route path="pool" element={<PoolPage wallet={wallet} contracts={contracts} eventSync={eventSync} />} />
+        <Route path="transactions" element={<TransactionsPage wallet={wallet} contracts={contracts} eventSync={eventSync} />} />
       </Route>
     </Routes>
   );

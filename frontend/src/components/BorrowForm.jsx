@@ -58,7 +58,8 @@ const BorrowForm = ({ lendingPoolContract, creditScoreContract, glpTokenContract
 
     setLoading(true);
     try {
-      const tx = await lendingPoolContract.borrow(ethers.parseEther(amount));
+      const borrowFn = lendingPoolContract["borrow(uint256,uint256)"] || lendingPoolContract.borrow;
+      const tx = await borrowFn.call(lendingPoolContract, ethers.parseEther(amount), 30);
       await tx.wait();
       alert('Loan approved and disbursed!');
       setAmount('');

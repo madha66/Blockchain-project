@@ -12,6 +12,10 @@ contract CreditScore is Ownable {
     }
 
     mapping(address => UserStats) public stats;
+    mapping(address => uint256) public defaultsCount;
+    mapping(address => uint256) public lateCount;
+    mapping(address => uint256) public rehabilitationCooldownUntil;
+
     address public lendingPool;
 
     constructor() Ownable(msg.sender) {}
@@ -43,14 +47,19 @@ contract CreditScore is Ownable {
     }
 
     function penalizeDefault(address user) external onlyLendingPool {
+        defaultsCount[user] += 1;
         if (stats[user].repaymentsCount > 0) {
             stats[user].repaymentsCount -= 1;
         }
+        rehabilitationCooldownUntil[user] = block.timestamp + 14 days;
     }
 
-    // Dynamic Credit Score Calculation (0 - 100)
+    function recordLateRepayment(address user) external onlyLendingPool {
+        lateCount[user] += 1;
+    }
+
+    // Dynamic Credit Score Calculation (10 - 100)
     function getScore(address user) public view returns (uint256) {
-        // Base starting score for any wallet (50/100)
         uint256 baseScore = 50;
 
         // Repayment count score: +10 per successful repayment (max 30 pts)
@@ -61,23 +70,31 @@ contract CreditScore is Ownable {
         uint256 amountScore = (stats[user].totalAmountRepaid * 20) / 1 ether;
         if (amountScore > 20) amountScore = 20;
 
-        uint256 totalScore = baseScore + repayScore + amountScore;
-        if (totalScore > 100) totalScore = 100;
+        uint256 totalPositive = baseScore + repayScore + amountScore;
+        uint256 penalties = (defaultsCount[user] * 25) + (lateCount[user] * 10);
 
-        return totalScore;
+        if (penalties >= totalPositive) {
+            return 10;
+        }
+
+        uint256 finalScore = totalPositive - penalties;
+        if (finalScore < 10) return 10;
+        if (finalScore > 100) return 100;
+
+        return finalScore;
     }
 
     // Dynamic Borrow Limits based on Credit Score Tier:
-    // Initial / Base Tier (Score 50-60): 0.5 ETH
-    // Tier 2 (Score 61-75): 1.5 ETH
-    // Tier 3 (Score 76-90): 3.0 ETH
-    // Elite Tier (Score 91-100): 5.0 ETH
     function getBorrowLimit(address user) external view returns (uint256) {
+        if (block.timestamp < rehabilitationCooldownUntil[user]) {
+            return 0.2 ether; // Clamped to base rehabilitation tier during cooldown
+        }
+
         uint256 score = getScore(user);
         if (score <= 40) return 0.2 ether;
         if (score <= 60) return 0.5 ether;   // First-time borrower limit
         if (score <= 75) return 1.5 ether;   // After 1 repayment
         if (score <= 90) return 3.0 ether;   // After 2+ repayments
-        return 5.0 ether;                   // Elite reputation
+        return 5.0 ether;                   // Elite tier
     }
 }

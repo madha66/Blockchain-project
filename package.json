@@ -4,7 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "hardhat test"
+    "test": "hardhat test",
+    "time-travel": "node scripts/timeTravel.js",
+    "status": "node scripts/timeTravel.js status"
   },
   "keywords": [],
   "author": "",

@@ -7,18 +7,22 @@ import {
   HiLightningBolt, 
   HiShieldCheck 
 } from 'react-icons/hi';
+import { fmtEth } from '../../utils/inr';
 import './LendPage.css';
 
 const LendPage = ({ wallet, contracts, eventSync }) => {
   const { account, provider } = wallet;
-  const { lendingPool, glpToken } = contracts;
+  const { lendingPool, glpToken, defaultManager, identityRegistry, reserveFund } = contracts;
 
   const [activeTab, setActiveTab] = useState('deposit'); // 'deposit' | 'withdraw'
   const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
   const [ethBalance, setEthBalance] = useState('0.0000');
   const [glpBalance, setGlpBalance] = useState('0.0000');
-  const [dueAmount, setDueAmount] = useState('0.0000');
+  const [claimAmount, setClaimAmount] = useState(0n);
+  const [lockedGlp, setLockedGlp] = useState('0.0000');
+  const [queuedGlp, setQueuedGlp] = useState(0n);
+  const [sharePrice, setSharePrice] = useState(10n ** 18n);
   const [poolLiquidity, setPoolLiquidity] = useState('0.0000');
   const [insuranceReserve, setInsuranceReserve] = useState('0.0000');
   const [statusMsg, setStatusMsg] = useState(null);
@@ -34,22 +38,26 @@ const LendPage = ({ wallet, contracts, eventSync }) => {
         setGlpBalance(Number(ethers.formatEther(glpBal)).toFixed(4));
       }
 
+      if (glpToken) {
+        setLockedGlp(fmtEth(await glpToken.lockedBalance(account)));
+      }
+
       if (lendingPool) {
-        const due = await lendingPool.getRepaymentAmount(account);
-        setDueAmount(Number(ethers.formatEther(due)).toFixed(4));
-
-        const poolAddr = await lendingPool.getAddress();
-        const rawBal = await provider.getBalance(poolAddr);
-        const reserve = await lendingPool.insuranceReserve();
-        setInsuranceReserve(Number(ethers.formatEther(reserve)).toFixed(4));
-
-        const freeCash = rawBal > reserve ? rawBal - reserve : 0n;
-        setPoolLiquidity(Number(ethers.formatEther(freeCash)).toFixed(4));
+        setPoolLiquidity(fmtEth(await lendingPool.freeCash()));
+        setSharePrice(await lendingPool.valueOfShares(10n ** 18n));
+        setQueuedGlp(await lendingPool.queuedSharesOf(account));
+      }
+      if (reserveFund) {
+        setInsuranceReserve(fmtEth(await provider.getBalance(await reserveFund.getAddress())));
+      }
+      if (identityRegistry && defaultManager) {
+        const memberId = await identityRegistry.memberOf(account);
+        setClaimAmount(memberId === 0n ? 0n : await defaultManager.claimOf(memberId));
       }
     } catch (e) {
       console.error('Error fetching lend page balances:', e);
     }
-  }, [account, provider, glpToken, lendingPool]);
+  }, [account, provider, glpToken, lendingPool, reserveFund, identityRegistry, defaultManager]);
 
   useEffect(() => {
     fetchBalances();
@@ -62,7 +70,7 @@ const LendPage = ({ wallet, contracts, eventSync }) => {
       const val = (maxVal * pct).toFixed(4);
       setAmount(val > 0 ? val : '0');
     } else {
-      const val = (Number(glpBalance) * pct).toFixed(4);
+      const val = ((Number(glpBalance) - Number(lockedGlp)) * pct).toFixed(4);
       setAmount(val > 0 ? val : '0');
     }
   };
@@ -102,8 +110,8 @@ const LendPage = ({ wallet, contracts, eventSync }) => {
       return;
     }
 
-    if (Number(amount) > Number(poolLiquidity)) {
-      setStatusMsg({ type: 'error', text: 'Withdraw amount exceeds current pool liquidity.' });
+    if (Number(amount) > Number(glpBalance) - Number(lockedGlp)) {
+      setStatusMsg({ type: 'error', text: 'Part of your GLP is locked as stake for an open loan or guarantee.' });
       return;
     }
 
@@ -112,8 +120,19 @@ const LendPage = ({ wallet, contracts, eventSync }) => {
     try {
       const tx = await lendingPool.withdraw(ethers.parseEther(amount));
       setStatusMsg({ type: 'info', text: 'Withdrawal submitted. Burning GLP & transferring ETH...' });
-      await tx.wait();
-      setStatusMsg({ type: 'success', text: `Successfully withdrew ${amount} ETH!` });
+      const receipt = await tx.wait();
+      const queued = receipt.logs.some((log) => {
+        try {
+          return lendingPool.interface.parseLog(log)?.name === 'WithdrawalQueued';
+        } catch {
+          return false;
+        }
+      });
+      setStatusMsg(
+        queued
+          ? { type: 'info', text: 'Free cash was short, so the unpaid part joined the withdrawal queue. It is paid pro rata as loans repay.' }
+          : { type: 'success', text: `Withdrew ${amount} GLP worth of ETH.` }
+      );
       setAmount('');
       fetchBalances();
     } catch (err) {
@@ -126,6 +145,21 @@ const LendPage = ({ wallet, contracts, eventSync }) => {
       setLoading(false);
     }
   };
+
+  const cancelQueued = async () => {
+    setLoading(true);
+    try {
+      await (await lendingPool.cancelQueuedWithdrawals()).wait();
+      setStatusMsg({ type: 'success', text: 'Queued withdrawal cancelled; your GLP is back in your wallet.' });
+      fetchBalances();
+    } catch (err) {
+      setStatusMsg({ type: 'error', text: 'Cancel failed: ' + (err.reason || err.shortMessage || err.message) });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const priceEth = Number(ethers.formatEther(sharePrice)) || 1;
 
   return (
     <div className="lend-container">
@@ -165,12 +199,12 @@ const LendPage = ({ wallet, contracts, eventSync }) => {
               {activeTab === 'deposit' ? 'Deposit ETH to Pool' : 'Withdraw ETH from Pool'}
             </h2>
             <span className="badge badge-gold">
-              {activeTab === 'deposit' ? 'Mints GLP 1:1' : 'Burns GLP 1:1'}
+              {activeTab === 'deposit' ? 'Mints GLP' : 'Burns GLP'}
             </span>
           </div>
 
           {/* Active loan reminder on deposit */}
-          {activeTab === 'deposit' && Number(dueAmount) > 0 && (
+          {activeTab === 'deposit' && claimAmount > 0n && (
             <div style={{ 
               background: 'rgba(255, 176, 32, 0.08)', 
               border: '1px solid var(--warning)', 
@@ -182,7 +216,8 @@ const LendPage = ({ wallet, contracts, eventSync }) => {
             }}>
               <HiExclamationCircle size={22} style={{ color: 'var(--warning)', flexShrink: 0 }} />
               <div style={{ fontSize: '0.85rem', color: '#ffb020' }}>
-                You currently have an active debt of <strong>{dueAmount} ETH</strong>. Any deposit will first automatically pay down your outstanding loan before minting new GLP tokens.
+                You have an unpaid default claim of <strong>{fmtEth(claimAmount)} ETH</strong>. Half of any deposit goes to
+                that claim first (reserve refilled first, then the pool); the rest mints GLP.
               </div>
             </div>
           )}
@@ -194,7 +229,11 @@ const LendPage = ({ wallet, contracts, eventSync }) => {
                 <span>{activeTab === 'deposit' ? 'Amount to Supply' : 'Amount to Redeem'}</span>
                 <span>
                   Available:{' '}
-                  <strong>{activeTab === 'deposit' ? `${ethBalance} ETH` : `${glpBalance} GLP`}</strong>
+                  <strong>
+                    {activeTab === 'deposit'
+                      ? `${ethBalance} ETH`
+                      : `${(Number(glpBalance) - Number(lockedGlp)).toFixed(4)} GLP unlocked`}
+                  </strong>
                 </span>
               </div>
 
@@ -230,12 +269,17 @@ const LendPage = ({ wallet, contracts, eventSync }) => {
             <div className="breakdown-box" style={{ marginTop: '20px' }}>
               <div className="breakdown-item">
                 <span>Conversion Rate</span>
-                <strong>1 ETH = 1.000 GLP</strong>
+                <strong>1 GLP = {priceEth.toFixed(6)} ETH</strong>
               </div>
               <div className="breakdown-item">
                 <span>{activeTab === 'deposit' ? 'You Receive (Est.)' : 'ETH Received (Est.)'}</span>
                 <strong style={{ color: 'var(--gold-primary)' }}>
-                  {amount && Number(amount) > 0 ? Number(amount).toFixed(4) : '0.0000'}{' '}
+                  {amount && Number(amount) > 0
+                    ? (activeTab === 'deposit'
+                        ? (Number(amount) * (claimAmount > 0n ? 0.5 : 1)) / priceEth
+                        : Number(amount) * priceEth
+                      ).toFixed(4)
+                    : '0.0000'}{' '}
                   {activeTab === 'deposit' ? 'GLP' : 'ETH'}
                 </strong>
               </div>
@@ -296,7 +340,7 @@ const LendPage = ({ wallet, contracts, eventSync }) => {
                 <strong style={{ color: 'var(--success)' }}>{poolLiquidity} ETH</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '10px', borderBottom: '1px solid var(--border-primary)' }}>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Insurance Reserve</span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Reserve (loss buffer, not a guarantee)</span>
                 <strong style={{ color: 'var(--brand-primary)' }}>{insuranceReserve} ETH</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '10px', borderBottom: '1px solid var(--border-primary)' }}>
@@ -304,8 +348,19 @@ const LendPage = ({ wallet, contracts, eventSync }) => {
                 <strong style={{ color: 'var(--gold-primary)' }}>{glpBalance} GLP</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Interest Accrual</span>
-                <strong style={{ color: 'var(--text-primary)' }}>5.0% Fixed on Loans</strong>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Locked as loan stake</span>
+                <strong style={{ color: 'var(--warning)' }}>{lockedGlp} GLP</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Queued for withdrawal</span>
+                <strong>
+                  {fmtEth(queuedGlp)} GLP{' '}
+                  {queuedGlp > 0n && (
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={cancelQueued} disabled={loading}>
+                      Cancel
+                    </button>
+                  )}
+                </strong>
               </div>
             </div>
           </div>
@@ -323,11 +378,11 @@ const LendPage = ({ wallet, contracts, eventSync }) => {
               </li>
               <li style={{ display: 'flex', gap: '10px' }}>
                 <span style={{ color: 'var(--gold-primary)', fontWeight: 'bold' }}>2.</span>
-                <span>Having a GLP deposit activates your borrower status, qualifying you for micro-loans.</span>
+                <span>Share value follows pool value, which counts late loans at a discount. Returns are never guaranteed; lenders bear losses the reserve cannot cover.</span>
               </li>
               <li style={{ display: 'flex', gap: '10px' }}>
                 <span style={{ color: 'var(--gold-primary)', fontWeight: 'bold' }}>3.</span>
-                <span>You can redeem GLP back into ETH at any time, subject to pool liquidity availability.</span>
+                <span>Redeem any time. If free cash is short, the rest of your request waits in a FIFO queue and is paid pro rata as loans repay.</span>
               </li>
             </ul>
           </div>

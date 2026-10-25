@@ -29,6 +29,13 @@ function App() {
     glpToken: useContract('GLPToken', runner),
     identityRegistry: useContract('IdentityRegistry', runner),
     policyConfig: useContract('PolicyConfig', runner),
+    loanManager: useContract('LoanManager', runner),
+    defaultManager: useContract('DefaultManager', runner),
+    riskEngine: useContract('RiskEngine', runner),
+    safeRepayVault: useContract('SafeRepayVault', runner),
+    payoutRouter: useContract('MockPayoutRouter', runner),
+    reserveFund: useContract('ReserveFund', runner),
+    portfolioLens: useContract('PortfolioLens', runner),
   };
   const eventSync = useEventSync(provider, account);
   const props = { wallet, contracts, eventSync };

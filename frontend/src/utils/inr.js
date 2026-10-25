@@ -11,3 +11,6 @@ export const formatInr = (rupees) =>
 /** "0.0100 ETH (≈ ₹1,000)" */
 export const ethWithInr = (wei, digits = 4) =>
   `${Number(ethers.formatEther(wei ?? 0n)).toFixed(digits)} ETH (≈ ${formatInr(weiToInr(wei))})`;
+
+/** Fixed-decimal ETH string from wei. */
+export const fmtEth = (wei, digits = 4) => Number(ethers.formatEther(wei ?? 0n)).toFixed(digits);

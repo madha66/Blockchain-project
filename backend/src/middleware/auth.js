@@ -46,7 +46,8 @@ export const requireSession = (...scopes) => async (req, res, next) => {
 };
 
 export const requireAdmin = (req, res, next) => {
-  if (!req.user?.isAdmin) return res.status(403).json({ error: "ADMIN_ONLY" });
+  const byWallet = req.user?.wallet && config.adminWallets.includes(req.user.wallet);
+  if (!req.user?.isAdmin && !byWallet) return res.status(403).json({ error: "ADMIN_ONLY" });
   next();
 };
 

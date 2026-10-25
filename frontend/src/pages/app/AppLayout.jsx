@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Outlet, NavLink, Link, useNavigate } from 'react-router-dom';
-import { HiHome, HiCreditCard, HiTrendingUp, HiTrendingDown, HiCollection, HiChartBar, HiClipboardList, HiMenu, HiX, HiLogout, HiUserCircle, HiExclamation } from 'react-icons/hi';
+import { HiHome, HiCreditCard, HiTrendingUp, HiTrendingDown, HiCollection, HiChartBar, HiClipboardList, HiMenu, HiX, HiLogout, HiUserCircle, HiExclamation, HiBell, HiShieldCheck, HiBeaker } from 'react-icons/hi';
+import NotificationBell from '../../components/auth/NotificationBell';
+import '../app/Admin.css';
 import ProfileMenu from '../../components/auth/ProfileMenu';
 import { useAuth } from '../../context/AuthContext';
 import './AppLayout.css';
@@ -14,7 +16,10 @@ const navItems = [
   { path: '/app/pool', label: 'Lend Pool', icon: <HiCollection size={20} /> },
   { path: '/app/transactions', label: 'Transactions', icon: <HiChartBar size={20} /> },
   { path: '/app/profile', label: 'Profile', icon: <HiUserCircle size={20} /> },
+  { path: '/app/notifications', label: 'Notifications', icon: <HiBell size={20} /> },
 ];
+
+const isLocalChain = Number(import.meta.env.VITE_CHAIN_ID || 31337) === 31337;
 
 const AppLayout = ({ wallet, eventSync }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -40,7 +45,11 @@ const AppLayout = ({ wallet, eventSync }) => {
         </div>
 
         <nav className="sidebar-nav">
-          {navItems.map(item => (
+          {[
+            ...navItems,
+            ...(user?.isAdmin ? [{ path: '/app/admin', label: 'Admin', icon: <HiShieldCheck size={20} /> }] : []),
+            ...(isLocalChain ? [{ path: '/app/demo', label: 'Demo panel', icon: <HiBeaker size={20} /> }] : []),
+          ].map(item => (
             <NavLink
               key={item.path}
               to={item.path}
@@ -92,6 +101,7 @@ const AppLayout = ({ wallet, eventSync }) => {
               <span>{eventSync?.connectionMode === 'ws' ? 'WebSocket Sync' : 'HTTP Polling Sync'}</span>
             </div>
 
+            <NotificationBell />
             <ProfileMenu compact />
             {account ? (
               <div className="app-wallet-badge">

@@ -110,6 +110,21 @@ const TransactionsPage = ({ wallet, eventSync }) => {
           >
             Recoveries
           </button>
+          {[
+            ['late', 'Late & collection'],
+            ['restructure', 'Restructures'],
+            ['appeal', 'Appeals'],
+            ['identity', 'Identity & score'],
+            ['admin', 'Parameters'],
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              className={`tx-filter-pill ${filter === key ? 'active' : ''}`}
+              onClick={() => setFilter(key)}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
@@ -159,7 +174,7 @@ const TransactionsPage = ({ wallet, eventSync }) => {
                   </td>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span className={`event-type-badge event-${tx.type}`}>{tx.type}</span>
+                      <span className={`event-type-badge event-${tx.type}`}>{tx.label || tx.type}</span>
                       <span style={{ fontWeight: 500 }}>{tx.name}</span>
                     </div>
                   </td>

@@ -1,5 +1,6 @@
 import { prisma } from "../db.js";
 import { computeStep } from "../services/signupState.js";
+import { config } from "../config.js";
 
 const latestConsents = (consents) => {
   const out = {};
@@ -22,7 +23,7 @@ export async function publicUser(userId) {
     email: u.email,
     phone: u.phone,
     wallet: u.wallet,
-    isAdmin: u.isAdmin,
+    isAdmin: u.isAdmin || (u.wallet ? config.adminWallets.includes(u.wallet) : false),
     contactVerified: u.contactVerified,
     signupStep: await computeStep(u.id),
     identity: u.identity

@@ -17,6 +17,9 @@ import LoansPage from './pages/app/LoansPage';
 import PoolPage from './pages/app/PoolPage';
 import TransactionsPage from './pages/app/TransactionsPage';
 import ProfilePage from './pages/app/ProfilePage';
+import NotificationsPage from './pages/app/NotificationsPage';
+import AdminPage from './pages/app/AdminPage';
+import DemoPage from './pages/app/DemoPage';
 
 function App() {
   const wallet = useWallet();
@@ -67,6 +70,9 @@ function App() {
           <Route path="pool" element={<PoolPage {...props} />} />
           <Route path="transactions" element={<TransactionsPage {...props} />} />
           <Route path="profile" element={loggedInOnly(<ProfilePage {...props} />)} />
+          <Route path="notifications" element={loggedInOnly(<NotificationsPage {...props} />)} />
+          <Route path="admin" element={loggedInOnly(<AdminPage {...props} />)} />
+          <Route path="demo" element={loggedInOnly(<DemoPage {...props} />)} />
         </Route>
       </Routes>
     </AuthProvider>

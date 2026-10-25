@@ -1,0 +1,163 @@
+/* Admin, Demo and Notifications pages */
+
+.adm-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 1200px;
+}
+
+.adm-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.adm-title {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.adm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+}
+
+.adm-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-x: auto;
+}
+
+.adm-card h2 {
+  font-size: 1.05rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.adm-card h3 {
+  font-size: 0.95rem;
+  margin-top: 8px;
+}
+
+.adm-note {
+  font-size: 0.85rem;
+}
+
+.adm-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.adm-self-start {
+  align-self: flex-start;
+}
+
+.adm-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.adm-table th,
+.adm-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-primary);
+  vertical-align: middle;
+}
+
+.adm-table th {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.adm-mono {
+  font-family: monospace;
+  font-size: 0.82rem;
+}
+
+.adm-param-input {
+  max-width: 200px;
+  padding: 6px 10px;
+}
+
+.adm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.adm-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: default;
+}
+
+.adm-notice header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.adm-notice-body {
+  white-space: pre-wrap;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.adm-notice footer {
+  font-size: 0.8rem;
+}
+
+.adm-unread {
+  border-color: var(--gold-border);
+  cursor: pointer;
+}
+
+.notif-bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-secondary);
+}
+
+.notif-bell:hover {
+  color: var(--gold-primary);
+}
+
+.notif-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}

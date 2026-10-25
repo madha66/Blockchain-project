@@ -193,3 +193,30 @@
     grid-template-columns: 1fr;
   }
 }
+
+.event-late,
+.event-default {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid rgba(255, 77, 106, 0.3);
+}
+
+.event-recovery {
+  background: var(--success-bg);
+  color: var(--success);
+  border: 1px solid rgba(0, 192, 135, 0.3);
+}
+
+.event-restructure,
+.event-appeal {
+  background: rgba(168, 85, 247, 0.1);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+.event-identity,
+.event-admin {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-secondary);
+}

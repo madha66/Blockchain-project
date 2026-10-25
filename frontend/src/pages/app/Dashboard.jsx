@@ -13,20 +13,19 @@ import {
   HiCheckCircle,
   HiInformationCircle
 } from 'react-icons/hi';
+import { useBorrower, displayLimit, STAGE_NAMES } from '../../hooks/useBorrower';
+import { TIER_NAMES } from '../../hooks/useMembership';
+import { fmtEth } from '../../utils/inr';
 import './Dashboard.css';
 
 const Dashboard = ({ wallet, contracts, eventSync }) => {
   const { account, provider } = wallet;
-  const { lendingPool, creditScore, glpToken } = contracts;
+  const { lendingPool, glpToken, reserveFund, loanManager } = contracts;
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
   const [ethBalance, setEthBalance] = useState('0.0000');
   const [glpBalance, setGlpBalance] = useState('0.0000');
-  const [score, setScore] = useState(50);
-  const [borrowLimit, setBorrowLimit] = useState('0.5000');
-  const [activeLoan, setActiveLoan] = useState('0.0000');
-  const [dueAmount, setDueAmount] = useState('0.0000');
   const [poolLiquidity, setPoolLiquidity] = useState('0.0000');
   const [insuranceReserve, setInsuranceReserve] = useState('0.0000');
   const [totalPoolLoans, setTotalPoolLoans] = useState('0.0000');
@@ -50,37 +49,12 @@ const Dashboard = ({ wallet, contracts, eventSync }) => {
         }
       }
 
-      // 3. Credit Score & Limit
-      if (creditScore) {
-        try {
-          const userScore = await creditScore.getScore(account);
-          setScore(Number(userScore));
-          const limit = await creditScore.getBorrowLimit(account);
-          setBorrowLimit(Number(ethers.formatEther(limit)).toFixed(4));
-        } catch (e) {
-          console.warn('Credit score fetch failed', e);
-        }
-      }
-
-      // 4. Lending Pool: active loan & due amount & pool liquidity
+      // 3. Pool: free cash, reserve (loss buffer), outstanding loans
       if (lendingPool) {
         try {
-          const poolAddr = await lendingPool.getAddress();
-          const rawBal = await provider.getBalance(poolAddr);
-          const reserve = await lendingPool.insuranceReserve();
-          setInsuranceReserve(Number(ethers.formatEther(reserve)).toFixed(4));
-
-          const freeCash = rawBal > reserve ? rawBal - reserve : 0n;
-          setPoolLiquidity(Number(ethers.formatEther(freeCash)).toFixed(4));
-
-          const userLoan = await lendingPool.activeLoans(account);
-          setActiveLoan(Number(ethers.formatEther(userLoan)).toFixed(4));
-
-          const due = await lendingPool.getRepaymentAmount(account);
-          setDueAmount(Number(ethers.formatEther(due)).toFixed(4));
-
-          const totalLoans = await lendingPool.totalActiveLoans();
-          setTotalPoolLoans(Number(ethers.formatEther(totalLoans)).toFixed(4));
+          setPoolLiquidity(fmtEth(await lendingPool.freeCash()));
+          if (reserveFund) setInsuranceReserve(fmtEth(await provider.getBalance(await reserveFund.getAddress())));
+          if (loanManager) setTotalPoolLoans(fmtEth(await loanManager.totalOutstanding()));
         } catch (e) {
           console.warn('Pool details fetch failed', e);
         }
@@ -90,21 +64,21 @@ const Dashboard = ({ wallet, contracts, eventSync }) => {
     } finally {
       setLoading(false);
     }
-  }, [account, provider, lendingPool, creditScore, glpToken]);
+  }, [account, provider, lendingPool, glpToken, reserveFund, loanManager]);
 
   useEffect(() => {
     fetchDashboardData();
   }, [fetchDashboardData, eventSync?.syncTick]);
 
-  // Determine credit tier label
-  const getTierLabel = (scoreVal) => {
-    if (scoreVal >= 91) return { label: 'Elite Tier', tier: 4 };
-    if (scoreVal >= 76) return { label: 'Tier 3 (Advanced)', tier: 3 };
-    if (scoreVal >= 61) return { label: 'Tier 2 (Standard)', tier: 2 };
-    return { label: 'Initial Tier', tier: 1 };
-  };
-
-  const currentTier = getTierLabel(score);
+  const borrower = useBorrower(contracts, account, eventSync?.syncTick);
+  const score = borrower.score ?? 300;
+  const registered = borrower.memberId !== 0n;
+  const borrowLimit = fmtEth(displayLimit(borrower.limits));
+  const activeLoan = fmtEth(borrower.loan?.outstandingPrincipal ?? 0n);
+  const dueAmount = fmtEth(borrower.amountDue);
+  const tierIndex = borrower.member ? Number(borrower.member.tier) : 0;
+  const currentTier = { label: registered ? `${TIER_NAMES[tierIndex]} tier` : 'Not registered', tier: tierIndex };
+  const stageLabel = borrower.stage === null ? '' : STAGE_NAMES[borrower.stage];
 
   // Utilization calculation
   const totalValue = Number(poolLiquidity) + Number(totalPoolLoans);
@@ -175,7 +149,13 @@ const Dashboard = ({ wallet, contracts, eventSync }) => {
           <div className="stat-value">
             {borrowLimit}<span className="stat-unit">ETH</span>
           </div>
-          <p className="stat-desc">Based on credit rating ({score}/100)</p>
+          <p className="stat-desc">
+            {registered
+              ? borrower.limits?.unsecuredAllowed
+                ? `Unsecured ladder limit · score ${score}/900`
+                : `Builder loan cap · ${borrower.limits?.unsecuredHold || 'credit-builder first'}`
+              : 'Sign up and register to borrow'}
+          </p>
         </div>
 
         {/* Active Loan */}
@@ -190,7 +170,7 @@ const Dashboard = ({ wallet, contracts, eventSync }) => {
             {activeLoan}<span className="stat-unit">ETH</span>
           </div>
           <p className="stat-desc">
-            {Number(dueAmount) > 0 ? `Total due: ${dueAmount} ETH (5% fee)` : 'No active debts'}
+            {borrower.loan ? `Due now: ${dueAmount} ETH · stage: ${stageLabel}` : 'No open loan'}
           </p>
         </div>
       </div>
@@ -214,7 +194,7 @@ const Dashboard = ({ wallet, contracts, eventSync }) => {
                 <div>
                   <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Reputation Score</span>
                   <div className="score-large-number">
-                    {score}<span className="score-max">/100</span>
+                    {registered ? score : '—'}<span className="score-max">/900</span>
                   </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
@@ -227,27 +207,23 @@ const Dashboard = ({ wallet, contracts, eventSync }) => {
 
               {/* Progress bar */}
               <div className="progress-track">
-                <div className="progress-fill" style={{ width: `${Math.min(score, 100)}%` }}></div>
+                <div className="progress-fill" style={{ width: `${Math.min(100, Math.max(0, (score - 300) / 6))}%` }}></div>
               </div>
 
-              {/* Score Tiers */}
+              {/* Tiers: completed loans plus score */}
               <div className="score-tiers-list">
-                <div className={`score-tier-item ${score <= 60 ? 'active' : ''}`}>
-                  <div className="tier-range">0–60 Score</div>
-                  <div className="tier-limit">0.5 ETH</div>
-                </div>
-                <div className={`score-tier-item ${score >= 61 && score <= 75 ? 'active' : ''}`}>
-                  <div className="tier-range">61–75 Score</div>
-                  <div className="tier-limit">1.5 ETH</div>
-                </div>
-                <div className={`score-tier-item ${score >= 76 && score <= 90 ? 'active' : ''}`}>
-                  <div className="tier-range">76–90 Score</div>
-                  <div className="tier-limit">3.0 ETH</div>
-                </div>
-                <div className={`score-tier-item ${score >= 91 ? 'active' : ''}`}>
-                  <div className="tier-range">91–100 Score</div>
-                  <div className="tier-limit">5.0 ETH</div>
-                </div>
+                {[
+                  ['New', 'First loan is a Builder loan'],
+                  ['Builder', '1 completed loan'],
+                  ['Standard', '2 loans · score 600+'],
+                  ['Trusted', '4 loans · score 700+'],
+                  ['Prime', '8 loans · score 800+'],
+                ].map(([name, rule], i) => (
+                  <div key={name} className={`score-tier-item ${registered && tierIndex === i ? 'active' : ''}`}>
+                    <div className="tier-range">{name}</div>
+                    <div className="tier-limit">{rule}</div>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -256,7 +232,9 @@ const Dashboard = ({ wallet, contracts, eventSync }) => {
               <div className="protocol-tip-content">
                 <h4>How to Increase Your Score</h4>
                 <p>
-                  Borrow responsibly and repay promptly. Each successful repayment elevates your credit standing, unlocking up to 5.0 ETH in collateral-free borrowing power.
+                  Pay installments on time (100% credit; within grace 60%; late 20%), finish loans, and keep your
+                  stake. Limits grow at most 1.5× per completed loan. A default leaves a scar that fades over two years
+                  but never fully disappears.
                 </p>
               </div>
             </div>
@@ -399,7 +377,7 @@ const Dashboard = ({ wallet, contracts, eventSync }) => {
                 }}>
                   <HiExclamationCircle size={24} style={{ color: 'var(--warning)', flexShrink: 0 }} />
                   <div style={{ fontSize: '0.82rem', color: '#ffcc80' }}>
-                    <strong>Action Required:</strong> You have an outstanding loan of {activeLoan} ETH. Settle to avoid interest accumulation.
+                    <strong>Open loan:</strong> {activeLoan} ETH outstanding, {dueAmount} ETH due now (stage: {stageLabel}). See the Loans page for the schedule and help options.
                   </div>
                 </div>
               ) : (

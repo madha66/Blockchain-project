@@ -7,6 +7,9 @@ import { config } from "./config.js";
 import { authRoutes } from "./routes/auth.js";
 import { signupRoutes } from "./routes/signup.js";
 import { profileRoutes } from "./routes/profile.js";
+import { notificationRoutes } from "./routes/notifications.js";
+import { adminRoutes } from "./routes/admin.js";
+import { demoRoutes } from "./routes/demo.js";
 import { createChain } from "./services/chain.js";
 
 /**
@@ -33,6 +36,11 @@ export function createApp(deps = {}) {
   app.use("/api/auth", authLimiter, authRoutes());
   app.use("/api/signup", authLimiter, signupRoutes({ chain }));
   app.use("/api/profile", profileRoutes({ chain }));
+  app.use("/api/notifications", notificationRoutes());
+  app.use("/api/admin", adminRoutes({ watcher: deps.watcher }));
+  if (config.chainId === 31337 && process.env.DEMO_ENABLED !== "false") {
+    app.use("/api/demo", demoRoutes({ watcher: deps.watcher }));
+  }
 
   for (const extra of deps.routers ?? []) app.use(extra.path, extra.router);
 

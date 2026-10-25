@@ -15,7 +15,7 @@ import './WalletPage.css';
 
 const WalletPage = ({ wallet, contracts }) => {
   const { account, provider } = wallet;
-  const { lendingPool, glpToken } = contracts;
+  const { glpToken, loanManager, identityRegistry } = contracts;
 
   const [copied, setCopied] = useState(false);
   const [copiedContract, setCopiedContract] = useState(null);
@@ -40,9 +40,11 @@ const WalletPage = ({ wallet, contracts }) => {
         setGlpBalance(Number(ethers.formatEther(glp)).toFixed(4));
       }
 
-      // Active Debt
-      if (lendingPool) {
-        const debt = await lendingPool.getRepaymentAmount(account);
+      // Remaining on the open loan's schedule (fees + principal + scheduled interest)
+      if (loanManager && identityRegistry) {
+        const memberId = await identityRegistry.memberOf(account);
+        const loanId = memberId === 0n ? 0n : await loanManager.openLoanOf(memberId);
+        const debt = loanId === 0n ? 0n : await loanManager.payoffAmount(loanId);
         setActiveLoan(Number(ethers.formatEther(debt)).toFixed(4));
       }
 
@@ -57,7 +59,7 @@ const WalletPage = ({ wallet, contracts }) => {
     } finally {
       setLoading(false);
     }
-  }, [account, provider, glpToken, lendingPool]);
+  }, [account, provider, glpToken, loanManager, identityRegistry]);
 
   useEffect(() => {
     fetchWalletDetails();

@@ -290,9 +290,10 @@ describe("GigLend V2 Core Lifecycle & Accounting Test Suite (migrated to V3)", f
       const ev = findEvent(receipt, dm, "LoanDefaulted");
 
       expect(ev.stakeUsed).to.equal(0n);
-      // The reserve covers principal up to its balance (here only the Builder loan's interest cut).
-      expect(ev.reserveUsed).to.equal(reserveBal < P ? reserveBal : P);
-      expect(ev.reserveUsed).to.be.greaterThan(0n);
+      // The keeper bounty is paid first; the reserve then covers principal up to what is left.
+      const bounty = findEvent(receipt, dm, "BountyPaid")?.amount ?? 0n;
+      const available = reserveBal - bounty;
+      expect(ev.reserveUsed).to.equal(available < P ? available : P);
       expect(ev.lenderLoss).to.equal(P - ev.reserveUsed);
       expect(await lm.totalOutstanding()).to.equal(0n);
       expect(await dm.claimOf(bobId)).to.equal(P + interest + fees);

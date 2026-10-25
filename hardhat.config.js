@@ -13,6 +13,10 @@ export default {
       viaIR: true,
     },
   },
+  mocha: {
+    // First deploy of each fixture parameter set wires ~40 transactions.
+    timeout: 120000,
+  },
   networks: {
     sepolia: {
       url: process.env.SEPOLIA_RPC_URL || "",

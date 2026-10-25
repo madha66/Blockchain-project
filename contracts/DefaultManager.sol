@@ -179,6 +179,14 @@ contract DefaultManager is AccessControl, ReentrancyGuard {
             _applyStakes(l, w);
         }
 
+        // Keeper bounty (10% of the late fee) is paid before the reserve is drawn, so it is
+        // always funded; the bounty cannot pull a default forward because timing is enforced above.
+        uint256 bounty = (l.lateFeesDue * _p("bountyShareBps")) / 10000;
+        if (bounty > 0) {
+            uint256 paid = IReserveFund(reserve).payBounty(caller, bounty);
+            emit BountyPaid(caller, loanId, paid);
+        }
+
         // 3. Reserve covers remaining principal (the lenders' asset).
         if (w.principal > 0) {
             w.reserveUsed = IReserveFund(reserve).cover(address(pool), w.principal);
@@ -197,12 +205,6 @@ contract DefaultManager is AccessControl, ReentrancyGuard {
         totalStakeApplied += w.stakeUsed + w.guarantorUsed;
         realisedLossByMonth[block.timestamp / (30 * _p("secondsPerDay"))] += w.lenderLoss;
         defaultsByType[uint8(dtype)] += 1;
-
-        uint256 bounty = (l.lateFeesDue * _p("bountyShareBps")) / 10000;
-        if (bounty > 0) {
-            uint256 paid = IReserveFund(reserve).payBounty(caller, bounty);
-            emit BountyPaid(caller, loanId, paid);
-        }
 
         emit Classified(loanId, dtype, flags, flowing, l.askedForHelp);
         emit LoanDefaulted(loanId, dtype, w.stakeUsed, w.guarantorUsed, w.reserveUsed, w.lenderLoss);

@@ -271,8 +271,17 @@ contract LendingPool is ReentrancyGuard, AccessControl {
         require(ok, "Disburse failed");
     }
 
-    /// @notice Called after cash returns to the pool so queued withdrawals get paid.
-    function onCashIn() external onlyRole(LOAN_ROLE) nonReentrant {
+    /**
+     * @notice Called after cash returns to the pool so queued withdrawals get paid. When the
+     *         pool is already mid-call (e.g. a deposit whose residual sweep repays a claim), the
+     *         outer call processes the queue itself, so this returns early.
+     */
+    function onCashIn() external onlyRole(LOAN_ROLE) {
+        if (_reentrancyGuardEntered()) return;
+        _guardedProcessQueue();
+    }
+
+    function _guardedProcessQueue() private nonReentrant {
         _processQueue();
     }
 

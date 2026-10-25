@@ -1,0 +1,202 @@
+{
+  "contractName": "PortfolioLens",
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_loanManager",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_defaults",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_pool",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_reserve",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "inputs": [],
+      "name": "defaults",
+      "outputs": [
+        {
+          "internalType": "contract ILossStats",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "loanManager",
+      "outputs": [
+        {
+          "internalType": "contract ILoanManager",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "months",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "secondsPerDay",
+          "type": "uint256"
+        }
+      ],
+      "name": "lossesByMonth",
+      "outputs": [
+        {
+          "internalType": "uint256[]",
+          "name": "out",
+          "type": "uint256[]"
+        },
+        {
+          "internalType": "uint256",
+          "name": "currentMonth",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "pool",
+      "outputs": [
+        {
+          "internalType": "contract ILendingPoolV3",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "portfolio",
+      "outputs": [
+        {
+          "components": [
+            {
+              "internalType": "uint256",
+              "name": "poolValue",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "freeCash",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "totalOutstanding",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "carriedValue",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "provisions",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "reserveBalance",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "activeLoans",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256[5]",
+              "name": "countByStage",
+              "type": "uint256[5]"
+            },
+            {
+              "internalType": "uint256[5]",
+              "name": "outstandingByStage",
+              "type": "uint256[5]"
+            },
+            {
+              "internalType": "uint256",
+              "name": "arrearsAll",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "arrearsExRestructured",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "restructuredLoans",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "totalLenderLoss",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "totalReserveUsed",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "totalRecovered",
+              "type": "uint256"
+            }
+          ],
+          "internalType": "struct PortfolioLens.Portfolio",
+          "name": "p",
+          "type": "tuple"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "reserve",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ]
+}

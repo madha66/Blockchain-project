@@ -5,12 +5,22 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "_glpToken",
+          "name": "admin",
           "type": "address"
         },
         {
-          "internalType": "address",
-          "name": "_creditScore",
+          "internalType": "contract GLPToken",
+          "name": "_glp",
+          "type": "address"
+        },
+        {
+          "internalType": "contract PolicyConfig",
+          "name": "_config",
+          "type": "address"
+        },
+        {
+          "internalType": "contract IdentityRegistry",
+          "name": "_registry",
           "type": "address"
         }
       ],
@@ -18,14 +28,8 @@
       "type": "constructor"
     },
     {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "owner",
-          "type": "address"
-        }
-      ],
-      "name": "OwnableInvalidOwner",
+      "inputs": [],
+      "name": "AccessControlBadConfirmation",
       "type": "error"
     },
     {
@@ -34,126 +38,20 @@
           "internalType": "address",
           "name": "account",
           "type": "address"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "neededRole",
+          "type": "bytes32"
         }
       ],
-      "name": "OwnableUnauthorizedAccount",
+      "name": "AccessControlUnauthorizedAccount",
       "type": "error"
     },
     {
       "inputs": [],
       "name": "ReentrancyGuardReentrantCall",
       "type": "error"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "user",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "amount",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "tenureDays",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "interestRateBps",
-          "type": "uint256"
-        }
-      ],
-      "name": "Borrowed",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "borrower",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "totalRecovered",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "reserveReplenished",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "memoCleared",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "refund",
-          "type": "uint256"
-        }
-      ],
-      "name": "DebtRecovered",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "borrower",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "sharesBurned",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "principalExtinguished",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "reserveCovered",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "writtenOffPrincipal",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "writtenOffInterest",
-          "type": "uint256"
-        }
-      ],
-      "name": "DefaultSettled",
-      "type": "event"
     },
     {
       "anonymous": false,
@@ -186,17 +84,123 @@
         {
           "indexed": true,
           "internalType": "address",
-          "name": "previousOwner",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "ResidualSwept",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "previousAdminRole",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "newAdminRole",
+          "type": "bytes32"
+        }
+      ],
+      "name": "RoleAdminChanged",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "account",
           "type": "address"
         },
         {
           "indexed": true,
           "internalType": "address",
-          "name": "newOwner",
+          "name": "sender",
           "type": "address"
         }
       ],
-      "name": "OwnershipTransferred",
+      "name": "RoleGranted",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "sender",
+          "type": "address"
+        }
+      ],
+      "name": "RoleRevoked",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "shares",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "value",
+          "type": "uint256"
+        }
+      ],
+      "name": "StakeBurned",
       "type": "event"
     },
     {
@@ -211,29 +215,67 @@
         {
           "indexed": false,
           "internalType": "uint256",
-          "name": "amount",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "principalPaid",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "interestPaid",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "refund",
+          "name": "shares",
           "type": "uint256"
         }
       ],
-      "name": "Repaid",
+      "name": "WithdrawalCancelled",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "ethAmount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "sharesBurned",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "sharesRemaining",
+          "type": "uint256"
+        }
+      ],
+      "name": "WithdrawalPaid",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "shares",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "queueIndex",
+          "type": "uint256"
+        }
+      ],
+      "name": "WithdrawalQueued",
       "type": "event"
     },
     {
@@ -263,12 +305,12 @@
     },
     {
       "inputs": [],
-      "name": "DEFAULT_TENURE_DAYS",
+      "name": "ADMIN_ROLE",
       "outputs": [
         {
-          "internalType": "uint256",
+          "internalType": "bytes32",
           "name": "",
-          "type": "uint256"
+          "type": "bytes32"
         }
       ],
       "stateMutability": "view",
@@ -276,12 +318,12 @@
     },
     {
       "inputs": [],
-      "name": "GRACE_PERIOD_DAYS",
+      "name": "DEFAULT_ADMIN_ROLE",
       "outputs": [
         {
-          "internalType": "uint256",
+          "internalType": "bytes32",
           "name": "",
-          "type": "uint256"
+          "type": "bytes32"
         }
       ],
       "stateMutability": "view",
@@ -289,25 +331,12 @@
     },
     {
       "inputs": [],
-      "name": "LATE_FEE_BPS",
+      "name": "LOAN_ROLE",
       "outputs": [
         {
-          "internalType": "uint256",
+          "internalType": "bytes32",
           "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "MAX_UTILIZATION_BPS",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
+          "type": "bytes32"
         }
       ],
       "stateMutability": "view",
@@ -330,58 +359,67 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "",
+          "name": "account",
           "type": "address"
-        }
-      ],
-      "name": "activeLoans",
-      "outputs": [
+        },
         {
           "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "amount",
+          "name": "maxShares",
           "type": "uint256"
         },
         {
           "internalType": "uint256",
-          "name": "tenureDays",
+          "name": "valueWei",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "excludedCarry",
           "type": "uint256"
         }
       ],
-      "name": "borrow",
-      "outputs": [],
+      "name": "burnStake",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "sharesBurned",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "valueCovered",
+          "type": "uint256"
+        }
+      ],
       "stateMutability": "nonpayable",
       "type": "function"
     },
     {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "amount",
-          "type": "uint256"
-        }
-      ],
-      "name": "borrow",
+      "inputs": [],
+      "name": "cancelQueuedWithdrawals",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
     },
     {
       "inputs": [],
-      "name": "creditScore",
+      "name": "config",
       "outputs": [
         {
-          "internalType": "contract CreditScore",
+          "internalType": "contract PolicyConfig",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "defaultManager",
+      "outputs": [
+        {
+          "internalType": "contract IDefaultManager",
           "name": "",
           "type": "address"
         }
@@ -397,21 +435,26 @@
       "type": "function"
     },
     {
-      "inputs": [],
-      "name": "fundInsuranceReserve",
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "to",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "disburse",
       "outputs": [],
-      "stateMutability": "payable",
+      "stateMutability": "nonpayable",
       "type": "function"
     },
     {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "user",
-          "type": "address"
-        }
-      ],
-      "name": "getAccruedInterest",
+      "inputs": [],
+      "name": "freeCash",
       "outputs": [
         {
           "internalType": "uint256",
@@ -425,36 +468,17 @@
     {
       "inputs": [
         {
-          "internalType": "address",
-          "name": "user",
-          "type": "address"
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
         }
       ],
-      "name": "getRepaymentAmount",
+      "name": "getRoleAdmin",
       "outputs": [
         {
-          "internalType": "uint256",
+          "internalType": "bytes32",
           "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "user",
-          "type": "address"
-        }
-      ],
-      "name": "getTotalDue",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
+          "type": "bytes32"
         }
       ],
       "stateMutability": "view",
@@ -474,27 +498,37 @@
       "type": "function"
     },
     {
-      "inputs": [],
-      "name": "insuranceReserve",
-      "outputs": [
+      "inputs": [
         {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
         }
       ],
-      "stateMutability": "view",
+      "name": "grantRole",
+      "outputs": [],
+      "stateMutability": "nonpayable",
       "type": "function"
     },
     {
       "inputs": [
         {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
           "internalType": "address",
-          "name": "",
+          "name": "account",
           "type": "address"
         }
       ],
-      "name": "isDefaulter",
+      "name": "hasRole",
       "outputs": [
         {
           "internalType": "bool",
@@ -506,75 +540,33 @@
       "type": "function"
     },
     {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "name": "loans",
+      "inputs": [],
+      "name": "loanManager",
       "outputs": [
         {
-          "internalType": "uint256",
-          "name": "principal",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "originationTime",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "dueDate",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "lastAccrualTime",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "accruedInterest",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "interestRateBps",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "tenureDays",
-          "type": "uint256"
+          "internalType": "contract ILoanManager",
+          "name": "",
+          "type": "address"
         }
       ],
       "stateMutability": "view",
       "type": "function"
     },
     {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "borrower",
-          "type": "address"
-        }
-      ],
-      "name": "markDefault",
+      "inputs": [],
+      "name": "onCashIn",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
     },
     {
       "inputs": [],
-      "name": "owner",
+      "name": "poolValue",
       "outputs": [
         {
-          "internalType": "address",
+          "internalType": "uint256",
           "name": "",
-          "type": "address"
+          "type": "uint256"
         }
       ],
       "stateMutability": "view",
@@ -582,73 +574,51 @@
     },
     {
       "inputs": [],
-      "name": "renounceOwnership",
+      "name": "processQueue",
       "outputs": [],
       "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "repay",
-      "outputs": [],
-      "stateMutability": "payable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "name": "reserveDrawn",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "secondsPerDay",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
       "type": "function"
     },
     {
       "inputs": [
         {
           "internalType": "uint256",
-          "name": "_secondsPerDay",
+          "name": "",
           "type": "uint256"
         }
       ],
-      "name": "setSecondsPerDay",
-      "outputs": [],
-      "stateMutability": "nonpayable",
+      "name": "queue",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "owner",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "shares",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
       "type": "function"
     },
     {
       "inputs": [],
-      "name": "settleWrittenOffDebt",
-      "outputs": [],
-      "stateMutability": "payable",
+      "name": "queueHead",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
       "type": "function"
     },
     {
       "inputs": [],
-      "name": "totalActiveLoans",
+      "name": "queueLength",
       "outputs": [
         {
           "internalType": "uint256",
@@ -663,13 +633,227 @@
       "inputs": [
         {
           "internalType": "address",
-          "name": "newOwner",
+          "name": "user",
           "type": "address"
         }
       ],
-      "name": "transferOwnership",
+      "name": "queuePosition",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "sharesAhead",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "ownShares",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "queuedSharesOf",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "registry",
+      "outputs": [
+        {
+          "internalType": "contract IdentityRegistry",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "callerConfirmation",
+          "type": "address"
+        }
+      ],
+      "name": "renounceRole",
       "outputs": [],
       "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "reserveFund",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "revokeRole",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "dm",
+          "type": "address"
+        }
+      ],
+      "name": "setDefaultManager",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "lm",
+          "type": "address"
+        }
+      ],
+      "name": "setLoanManager",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "rf",
+          "type": "address"
+        }
+      ],
+      "name": "setReserveFund",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "valueWei",
+          "type": "uint256"
+        }
+      ],
+      "name": "sharesForValue",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes4",
+          "name": "interfaceId",
+          "type": "bytes4"
+        }
+      ],
+      "name": "supportsInterface",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "totalQueuedShares",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "transferToReserve",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "shares",
+          "type": "uint256"
+        }
+      ],
+      "name": "valueOfShares",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
       "type": "function"
     },
     {
@@ -683,25 +867,6 @@
       "name": "withdraw",
       "outputs": [],
       "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "name": "writtenOffDebt",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
       "type": "function"
     },
     {

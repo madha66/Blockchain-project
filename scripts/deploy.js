@@ -1,7 +1,8 @@
 import hre from "hardhat";
 import fs from "fs";
 import path from "path";
-import { defineAllParams } from "./config.js";
+import { deployProtocol } from "./lib/protocol.js";
+import { INR_PER_ETH_DEMO } from "./config.js";
 
 const FRONTEND_CONTRACTS_DIR = path.resolve("frontend/src/contracts");
 const BACKEND_ENV_PATH = path.resolve("backend/.env");
@@ -21,45 +22,29 @@ const BACKEND_ENV_KEYS = {
   CreditScore: "CREDIT_SCORE_ADDRESS",
 };
 
-async function deployContract(name, args = []) {
-  const factory = await hre.ethers.getContractFactory(name);
-  const contract = await factory.deploy(...args);
-  await contract.waitForDeployment();
-  const address = await contract.getAddress();
-  console.log(`${name.padEnd(18)} ${address}`);
-  return contract;
-}
-
-/**
- * Deploys and wires the protocol. Returns { contracts, addresses }.
- */
-async function deployAll({ overrides = {}, log = true } = {}) {
+async function deployAll() {
   const [deployer] = await hre.ethers.getSigners();
-  if (log) console.log("Deploying with:", deployer.address);
-
-  const policyConfig = await deployContract("PolicyConfig", [deployer.address]);
-  await defineAllParams(policyConfig, overrides);
-
-  const identityRegistry = await deployContract("IdentityRegistry", [
-    deployer.address,
-    ATTESTER_ADDRESS,
-    await policyConfig.getAddress(),
-  ]);
-
-  const glpToken = await deployContract("GLPToken");
-  const creditScore = await deployContract("CreditScore");
-  const lendingPool = await deployContract("LendingPool", [
-    await glpToken.getAddress(),
-    await creditScore.getAddress(),
-  ]);
-
-  await (await glpToken.setLendingPool(await lendingPool.getAddress())).wait();
-  await (await creditScore.setLendingPool(await lendingPool.getAddress())).wait();
-
-  const contracts = { PolicyConfig: policyConfig, IdentityRegistry: identityRegistry, GLPToken: glpToken, CreditScore: creditScore, LendingPool: lendingPool };
+  console.log("Deploying with:", deployer.address);
+  console.log("Attester:      ", ATTESTER_ADDRESS);
+  // Locally the deployer holds ADMIN_ROLE and DISPUTE_ROLE. Production: a Safe multisig.
+  const contracts = await deployProtocol(hre.ethers, { admin: deployer, attester: ATTESTER_ADDRESS, log: true });
+  const byName = {
+    PolicyConfig: contracts.config,
+    IdentityRegistry: contracts.registry,
+    GLPToken: contracts.glp,
+    CreditScore: contracts.score,
+    LendingPool: contracts.pool,
+    ReserveFund: contracts.reserve,
+    SafeRepayVault: contracts.vault,
+    MockPayoutRouter: contracts.router,
+    LoanManager: contracts.loanManager,
+    RiskEngine: contracts.risk,
+    DefaultManager: contracts.defaultManager,
+    PortfolioLens: contracts.lens,
+  };
   const addresses = {};
-  for (const [name, c] of Object.entries(contracts)) addresses[name] = await c.getAddress();
-  return { contracts, addresses };
+  for (const [name, c] of Object.entries(byName)) addresses[name] = await c.getAddress();
+  return { contracts: byName, addresses };
 }
 
 function syncFrontend(addresses, chainId) {

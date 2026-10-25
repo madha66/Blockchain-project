@@ -2,415 +2,319 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
 import "./GLPToken.sol";
-import "./CreditScore.sol";
-import "./interfaces/ILendingPool.sol";
-import "./libraries/InterestLib.sol";
+import "./PolicyConfig.sol";
+import "./IdentityRegistry.sol";
+import "./interfaces/IGigLend.sol";
 
-contract LendingPool is ILendingPool, ReentrancyGuard, Ownable {
-    using InterestLib for uint256;
+/**
+ * @title LendingPool
+ * @notice Lender side of GigLend: deposits, withdrawals and the withdrawal queue.
+ *         Shares are priced off poolValue() = free cash + carried value of open loans, where
+ *         late loans are carried at a discount by stage (book losses in steps). The 10^6 wei
+ *         virtual offset protects against share-inflation attacks.
+ *         Only LoanManager / DefaultManager (LOAN_ROLE) move pool cash for loans.
+ */
+contract LendingPool is ReentrancyGuard, AccessControl {
+    bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
+    bytes32 public constant LOAN_ROLE = keccak256("LOAN_ROLE");
 
-    GLPToken public glpToken;
-    CreditScore public creditScore;
+    uint256 public constant VIRTUAL_OFFSET = 1000000; // 10^6 wei virtual offset
 
-    uint256 public totalActiveLoans;      // Strictly unpaid principal across active loans
-    uint256 public insuranceReserve;      // Earmarked portion of cash ring-fenced for bad debt
-    uint256 public secondsPerDay = 86400; // Configurable for local testing and time-travel
-
-    uint256 public constant GRACE_PERIOD_DAYS = 3;
-    uint256 public constant DEFAULT_TENURE_DAYS = 30;
-    uint256 public constant MAX_UTILIZATION_BPS = 9000; // 90.00%
-    uint256 public constant VIRTUAL_OFFSET = 1000000;    // 10^6 wei virtual offset
-    uint256 public constant LATE_FEE_BPS = 500;          // 5.00% late surcharge
-
-    struct Loan {
-        uint256 principal;           // Remaining unpaid principal (wei)
-        uint256 originationTime;     // Timestamp when loan was taken
-        uint256 dueDate;             // Origination + tenure
-        uint256 lastAccrualTime;     // Timestamp up to which interest is checkpointed
-        uint256 accruedInterest;     // Checkpointed unpaid interest
-        uint256 interestRateBps;     // Base rate + risk surcharge locked at origination
-        uint256 tenureDays;          // Tenure duration in days
+    struct WithdrawalRequest {
+        address owner;
+        uint256 shares; // remaining shares held in escrow by the pool
     }
 
-    mapping(address => Loan) public loans;
-    mapping(address => uint256) public activeLoans;       // Legacy mapping returning principal
-    mapping(address => uint256) public writtenOffDebt;    // Off-balance memorandum debt
-    mapping(address => uint256) public reserveDrawn;       // Exact insurance reserve drawn for borrower
-    mapping(address => bool) public isDefaulter;
+    GLPToken public immutable glpToken;
+    PolicyConfig public immutable config;
+    IdentityRegistry public immutable registry;
+    ILoanManager public loanManager;
+    IDefaultManager public defaultManager;
+    address public reserveFund;
+
+    WithdrawalRequest[] public queue;
+    uint256 public queueHead;
+    uint256 public totalQueuedShares;
+    mapping(address => uint256) public queuedSharesOf;
 
     event Deposited(address indexed user, uint256 amount, uint256 shares);
-    event Borrowed(address indexed user, uint256 amount, uint256 tenureDays, uint256 interestRateBps);
-    event Repaid(address indexed user, uint256 amount, uint256 principalPaid, uint256 interestPaid, uint256 refund);
     event Withdrawn(address indexed user, uint256 ethAmount, uint256 glpBurned);
-    event DefaultSettled(
-        address indexed borrower,
-        uint256 sharesBurned,
-        uint256 principalExtinguished,
-        uint256 reserveCovered,
-        uint256 writtenOffPrincipal,
-        uint256 writtenOffInterest
-    );
-    event DebtRecovered(
-        address indexed borrower,
-        uint256 totalRecovered,
-        uint256 reserveReplenished,
-        uint256 memoCleared,
-        uint256 refund
-    );
+    event WithdrawalQueued(address indexed user, uint256 shares, uint256 queueIndex);
+    event WithdrawalPaid(address indexed user, uint256 ethAmount, uint256 sharesBurned, uint256 sharesRemaining);
+    event WithdrawalCancelled(address indexed user, uint256 shares);
+    event ResidualSwept(address indexed user, uint256 indexed memberId, uint256 amount);
+    event StakeBurned(address indexed account, uint256 shares, uint256 value);
 
-    constructor(address _glpToken, address _creditScore) Ownable(msg.sender) {
-        glpToken = GLPToken(_glpToken);
-        creditScore = CreditScore(_creditScore);
+    constructor(address admin, GLPToken _glp, PolicyConfig _config, IdentityRegistry _registry) {
+        glpToken = _glp;
+        config = _config;
+        registry = _registry;
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        _grantRole(ADMIN_ROLE, admin);
     }
 
-    function setSecondsPerDay(uint256 _secondsPerDay) external onlyOwner {
-        require(_secondsPerDay > 0, "Invalid secondsPerDay");
-        secondsPerDay = _secondsPerDay;
+    // ─────────────────────────────────────────────────────────────────────
+    // Wiring (set once)
+    // ─────────────────────────────────────────────────────────────────────
+
+    function setLoanManager(address lm) external onlyRole(ADMIN_ROLE) {
+        require(address(loanManager) == address(0), "Already set");
+        loanManager = ILoanManager(lm);
+    }
+
+    function setDefaultManager(address dm) external onlyRole(ADMIN_ROLE) {
+        require(address(defaultManager) == address(0), "Already set");
+        defaultManager = IDefaultManager(dm);
+    }
+
+    function setReserveFund(address rf) external onlyRole(ADMIN_ROLE) {
+        require(reserveFund == address(0), "Already set");
+        reserveFund = rf;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Valuation
+    // ─────────────────────────────────────────────────────────────────────
+
+    function freeCash() public view returns (uint256) {
+        return address(this).balance;
     }
 
     /**
-     * @notice Deposit ETH into pool to mint GLP tokens with virtual-offset protection.
+     * @notice freeCash + Σ carried(loan). Carried value falls with each loan's stage.
      */
-    function deposit() external payable override nonReentrant {
+    function poolValue() public view returns (uint256) {
+        uint256 carried = address(loanManager) == address(0) ? 0 : loanManager.carriedValue();
+        return freeCash() + carried;
+    }
+
+    /// @notice Value of `shares` at the current (provisioned) share price.
+    function valueOfShares(uint256 shares) public view returns (uint256) {
+        return (shares * (poolValue() + VIRTUAL_OFFSET)) / (glpToken.totalSupply() + VIRTUAL_OFFSET);
+    }
+
+    /// @notice Shares worth `valueWei` at the current share price, rounded up.
+    function sharesForValue(uint256 valueWei) public view returns (uint256) {
+        uint256 den = poolValue() + VIRTUAL_OFFSET;
+        return (valueWei * (glpToken.totalSupply() + VIRTUAL_OFFSET) + den - 1) / den;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Lender actions
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * @notice Deposit ETH for GLP. A member with a residual default claim has residualSweepBps
+     *         (50%) of the deposit applied to the claim first.
+     */
+    function deposit() external payable nonReentrant {
         require(msg.value > 0, "Deposit must be > 0");
+        uint256 value = msg.value;
 
-        // address(this).balance already includes msg.value!
-        uint256 currentCash = address(this).balance;
-        uint256 preCash = currentCash - msg.value;
-        uint256 preFreeCash = preCash > insuranceReserve ? preCash - insuranceReserve : 0;
-        uint256 preRecognizedAssets = preFreeCash + totalActiveLoans;
+        uint256 memberId = registry.memberOf(msg.sender);
+        if (memberId != 0 && address(defaultManager) != address(0)) {
+            uint256 claim = defaultManager.claimOf(memberId);
+            if (claim > 0) {
+                uint256 sweep = (value * config.get("residualSweepBps")) / 10000;
+                if (sweep > claim) sweep = claim;
+                if (sweep > 0) {
+                    value -= sweep;
+                    defaultManager.applyRecovery{value: sweep}(memberId);
+                    emit ResidualSwept(msg.sender, memberId, sweep);
+                }
+            }
+        }
+        require(value > 0, "Nothing left to deposit");
 
-        uint256 sharesToMint = (msg.value * (glpToken.totalSupply() + VIRTUAL_OFFSET)) /
-            (preRecognizedAssets + VIRTUAL_OFFSET);
+        // Pre-deposit value: everything recognised except this deposit's remaining cash.
+        uint256 preValue = poolValue() - value;
+        uint256 sharesToMint = (value * (glpToken.totalSupply() + VIRTUAL_OFFSET)) / (preValue + VIRTUAL_OFFSET);
         require(sharesToMint > 0, "Zero shares minted");
 
         glpToken.mint(msg.sender, sharesToMint);
-        emit Deposited(msg.sender, msg.value, sharesToMint);
-    }
-
-    /**
-     * @notice Borrow ETH with default 30-day tenure (backward-compatible overload).
-     */
-    function borrow(uint256 amount) external override nonReentrant {
-        _executeBorrow(amount, DEFAULT_TENURE_DAYS);
-    }
-
-    /**
-     * @notice Borrow ETH with specified tenure in days (7 to 90 days).
-     */
-    function borrow(uint256 amount, uint256 tenureDays) external override nonReentrant {
-        _executeBorrow(amount, tenureDays);
-    }
-
-    function _executeBorrow(uint256 amount, uint256 tenureDays) internal {
-        require(amount > 0, "Amount must be > 0");
-        require(tenureDays >= 7 && tenureDays <= 90, "Tenure out of range (7-90 days)");
-        require(loans[msg.sender].principal == 0, "Existing loan must be repaid");
-        require(!isDefaulter[msg.sender], "Defaulter cannot borrow");
-        require(
-            block.timestamp >= creditScore.rehabilitationCooldownUntil(msg.sender),
-            "Rehabilitation cooldown active"
-        );
-        require(glpToken.balanceOf(msg.sender) > 0, "Must deposit in pool before borrowing");
-
-        uint256 freeCash = address(this).balance > insuranceReserve ? address(this).balance - insuranceReserve : 0;
-        require(amount <= freeCash, "Insufficient pool liquidity");
-
-        creditScore.initUser(msg.sender);
-        uint256 limit = creditScore.getBorrowLimit(msg.sender);
-        require(amount <= limit, "Borrow amount exceeds credit limit");
-
-        // Check 90% post-borrow utilization cap
-        uint256 postActiveLoans = totalActiveLoans + amount;
-        uint256 totalPoolCapital = freeCash + totalActiveLoans; // Invariant capital before disbursement
-        require(postActiveLoans * 10000 <= totalPoolCapital * MAX_UTILIZATION_BPS, "Utilization exceeds 90% cap");
-
-        // Calculate rate based on post-borrow utilization + borrower risk score
-        uint256 poolRate = InterestLib.calculatePoolRate(postActiveLoans, totalPoolCapital);
-        uint256 userScore = creditScore.getScore(msg.sender);
-        uint256 riskSurcharge = InterestLib.calculateRiskSurcharge(userScore);
-        uint256 lockedRateBps = poolRate + riskSurcharge;
-
-        uint256 dueDate = block.timestamp + (tenureDays * secondsPerDay);
-
-        loans[msg.sender] = Loan({
-            principal: amount,
-            originationTime: block.timestamp,
-            dueDate: dueDate,
-            lastAccrualTime: block.timestamp,
-            accruedInterest: 0,
-            interestRateBps: lockedRateBps,
-            tenureDays: tenureDays
-        });
-
-        activeLoans[msg.sender] = amount;
-        totalActiveLoans += amount;
-
-        (bool success, ) = msg.sender.call{value: amount}("");
-        require(success, "Transfer failed");
-
-        emit Borrowed(msg.sender, amount, tenureDays, lockedRateBps);
-    }
-
-    /**
-     * @notice Returns total accrued and pending interest for a borrower.
-     */
-    function getAccruedInterest(address user) public view returns (uint256) {
-        Loan storage loan = loans[user];
-        if (loan.principal == 0) return 0;
-        return loan.accruedInterest + _calculatePendingInterest(user);
-    }
-
-    /**
-     * @notice Returns total repayment amount due including accrued and pending interest.
-     */
-    function getRepaymentAmount(address user) public view returns (uint256) {
-        Loan storage loan = loans[user];
-        if (loan.principal == 0) return 0;
-        uint256 pendingInterest = _calculatePendingInterest(user);
-        return loan.principal + loan.accruedInterest + pendingInterest;
-    }
-
-    /**
-     * @notice Alias for getRepaymentAmount.
-     */
-    function getTotalDue(address user) external view returns (uint256) {
-        return getRepaymentAmount(user);
-    }
-
-    /**
-     * @notice Directly seeds or donates funds to the insurance reserve.
-     */
-    function fundInsuranceReserve() external payable {
-        insuranceReserve += msg.value;
-    }
-
-    function _calculatePendingInterest(address user) internal view returns (uint256) {
-        Loan storage loan = loans[user];
-        if (loan.principal == 0 || block.timestamp <= loan.lastAccrualTime) return 0;
-
-        uint256 t0 = loan.lastAccrualTime;
-        uint256 t1 = block.timestamp;
-        uint256 due = loan.dueDate;
-
-        if (t1 <= due) {
-            // Pure ordinary interest
-            return InterestLib.calculateAccruedInterest(loan.principal, loan.interestRateBps, t1 - t0, secondsPerDay);
-        } else if (t0 < due) {
-            // Spans due date
-            uint256 ord = InterestLib.calculateAccruedInterest(loan.principal, loan.interestRateBps, due - t0, secondsPerDay);
-            uint256 late = InterestLib.calculateAccruedInterest(loan.principal, loan.interestRateBps + LATE_FEE_BPS, t1 - due, secondsPerDay);
-            return ord + late;
-        } else {
-            // Entirely overdue
-            return InterestLib.calculateAccruedInterest(loan.principal, loan.interestRateBps + LATE_FEE_BPS, t1 - t0, secondsPerDay);
+        if (memberId != 0 && registry.getMember(memberId).stakeSince == 0) {
+            registry.setStakeSince(memberId, uint64(block.timestamp));
         }
+        emit Deposited(msg.sender, value, sharesToMint);
+        _processQueue();
     }
 
     /**
-     * @notice Repays active loan (interest first, principal second). Excess is refunded.
+     * @notice Burn GLP for ETH at the provisioned share price. If free cash is short, or other
+     *         withdrawals are already waiting, the request joins the FIFO queue instead of reverting.
      */
-    function repay() external payable override nonReentrant {
-        Loan storage loan = loans[msg.sender];
-        require(loan.principal > 0, "No active loan");
-        require(msg.value > 0, "Repayment amount must be > 0");
-
-        // Checkpoint interest up to execution block timestamp
-        uint256 pending = _calculatePendingInterest(msg.sender);
-        loan.accruedInterest += pending;
-        loan.lastAccrualTime = block.timestamp;
-
-        // Interest-first waterfall
-        uint256 interestPaid = msg.value < loan.accruedInterest ? msg.value : loan.accruedInterest;
-        loan.accruedInterest -= interestPaid;
-
-        // Allocate 10% of interest collected to insurance reserve
-        uint256 reserveCut = (interestPaid * 10) / 100;
-        insuranceReserve += reserveCut;
-
-        uint256 remValue = msg.value - interestPaid;
-        uint256 principalPaid = remValue < loan.principal ? remValue : loan.principal;
-        loan.principal -= principalPaid;
-        activeLoans[msg.sender] = loan.principal;
-        totalActiveLoans -= principalPaid;
-
-        uint256 refund = remValue - principalPaid;
-
-        creditScore.updateRepayment(msg.sender, principalPaid + interestPaid);
-        if (block.timestamp > loan.dueDate) {
-            creditScore.recordLateRepayment(msg.sender);
-        }
-
-        if (loan.principal == 0 && loan.accruedInterest == 0) {
-            delete loans[msg.sender];
-            activeLoans[msg.sender] = 0;
-        }
-
-        if (refund > 0) {
-            (bool success, ) = msg.sender.call{value: refund}("");
-            require(success, "Refund failed");
-        }
-
-        emit Repaid(msg.sender, msg.value, principalPaid, interestPaid, refund);
-    }
-
-    /**
-     * @notice Withdraw liquid ETH by burning GLP shares with virtual-offset protection.
-     */
-    function withdraw(uint256 glpAmount) external override nonReentrant {
+    function withdraw(uint256 glpAmount) external nonReentrant {
         require(glpAmount > 0, "Amount must be > 0");
         require(glpToken.balanceOf(msg.sender) >= glpAmount, "Insufficient GLP balance");
+        require(glpToken.unlockedBalanceOf(msg.sender) >= glpAmount, "GLP locked");
 
-        uint256 freeCash = address(this).balance > insuranceReserve ? address(this).balance - insuranceReserve : 0;
-        uint256 recognizedAssets = freeCash + totalActiveLoans;
-
-        uint256 ethToReturn = (glpAmount * (recognizedAssets + VIRTUAL_OFFSET)) /
-            (glpToken.totalSupply() + VIRTUAL_OFFSET);
+        uint256 ethToReturn = valueOfShares(glpAmount);
         require(ethToReturn > 0, "Zero assets to return");
-        require(freeCash >= ethToReturn, "Insufficient liquidity to withdraw");
 
+        if (queueHead == queue.length && freeCash() >= ethToReturn) {
+            glpToken.burnFrom(msg.sender, glpAmount);
+            _afterStakeChange(msg.sender);
+            (bool success, ) = msg.sender.call{value: ethToReturn}("");
+            require(success, "Transfer failed");
+            emit Withdrawn(msg.sender, ethToReturn, glpAmount);
+            return;
+        }
+
+        require(queue.length - queueHead < config.get("maxQueueLength"), "Withdrawal queue full");
+        // Escrow the shares with the pool: they keep sharing gains and losses while queued.
         glpToken.burnFrom(msg.sender, glpAmount);
-
-        (bool success, ) = msg.sender.call{value: ethToReturn}("");
-        require(success, "Transfer failed");
-
-        emit Withdrawn(msg.sender, ethToReturn, glpAmount);
+        glpToken.mint(address(this), glpAmount);
+        _afterStakeChange(msg.sender);
+        queue.push(WithdrawalRequest(msg.sender, glpAmount));
+        totalQueuedShares += glpAmount;
+        queuedSharesOf[msg.sender] += glpAmount;
+        emit WithdrawalQueued(msg.sender, glpAmount, queue.length - 1);
+        _processQueue();
     }
 
-    /**
-     * @notice Settle default on an overdue loan past grace period via 3-stage waterfall (Approach A).
-     */
-    function markDefault(address borrower) external override nonReentrant {
-        Loan storage loan = loans[borrower];
-        require(loan.principal > 0, "No active principal");
-        require(
-            block.timestamp >= loan.dueDate + (GRACE_PERIOD_DAYS * secondsPerDay),
-            "Grace period not elapsed"
-        );
-
-        // Checkpoint interest up to default timestamp; interest stops accruing thereafter
-        loan.accruedInterest += _calculatePendingInterest(borrower);
-        loan.lastAccrualTime = block.timestamp;
-        uint256 accruedInt = loan.accruedInterest;
-        uint256 loanPrincipal = loan.principal;
-
-        // Stage 1: Borrower share set-off
-        (uint256 sharesToBurn, uint256 principalExtinguished) = _calculateShareSetOff(borrower, loanPrincipal);
-        if (sharesToBurn > 0) {
-            glpToken.burnFrom(borrower, sharesToBurn);
-        }
-
-        totalActiveLoans -= principalExtinguished;
-        uint256 remPrincipal1 = loanPrincipal - principalExtinguished;
-
-        // Stage 2: Insurance reserve absorption
-        uint256 reserveCovered = 0;
-        if (remPrincipal1 > 0 && insuranceReserve > 0) {
-            reserveCovered = remPrincipal1 < insuranceReserve ? remPrincipal1 : insuranceReserve;
-            insuranceReserve -= reserveCovered;
-            reserveDrawn[borrower] += reserveCovered;
-            totalActiveLoans -= reserveCovered;
-        }
-        uint256 remPrincipal2 = remPrincipal1 - reserveCovered;
-
-        // Stage 3: Socialized loss write-off & off-balance memorandum
-        totalActiveLoans -= remPrincipal2;
-        writtenOffDebt[borrower] = remPrincipal2 + accruedInt;
-        isDefaulter[borrower] = true;
-        activeLoans[borrower] = 0;
-
-        creditScore.penalizeDefault(borrower);
-
-        emit DefaultSettled(
-            borrower,
-            sharesToBurn,
-            principalExtinguished,
-            reserveCovered,
-            remPrincipal2,
-            accruedInt
-        );
-
-        delete loans[borrower];
-    }
-
-    /**
-     * @dev Internal helper for Stage 1 share set-off under Approach A (Impairment Isolation).
-     */
-    function _calculateShareSetOff(address borrower, uint256 loanPrincipal)
-        internal
-        view
-        returns (uint256 sharesToBurn, uint256 principalExtinguished)
-    {
-        uint256 borrowerShares = glpToken.balanceOf(borrower);
-        if (borrowerShares == 0) {
-            return (0, 0);
-        }
-        uint256 freeCash = address(this).balance > insuranceReserve ? address(this).balance - insuranceReserve : 0;
-        uint256 unimpairedLoans = totalActiveLoans > loanPrincipal ? totalActiveLoans - loanPrincipal : 0;
-        uint256 unimpairedAssets = freeCash + unimpairedLoans;
-        uint256 totalSupply = glpToken.totalSupply();
-
-        uint256 den = unimpairedAssets + VIRTUAL_OFFSET;
-        uint256 num = loanPrincipal * (totalSupply + VIRTUAL_OFFSET);
-        uint256 sharesNeeded = (num + den - 1) / den; // Ceiling division
-
-        if (borrowerShares < sharesNeeded) {
-            sharesToBurn = borrowerShares;
-            principalExtinguished = (borrowerShares * den) / (totalSupply + VIRTUAL_OFFSET);
-            if (principalExtinguished > loanPrincipal) {
-                principalExtinguished = loanPrincipal;
+    /// @notice Returns the caller's remaining queued shares.
+    function cancelQueuedWithdrawals() external nonReentrant {
+        uint256 total;
+        for (uint256 i = queueHead; i < queue.length; i++) {
+            if (queue[i].owner == msg.sender && queue[i].shares > 0) {
+                total += queue[i].shares;
+                queue[i].shares = 0;
             }
-        } else {
-            sharesToBurn = sharesNeeded;
-            principalExtinguished = loanPrincipal;
         }
+        require(total > 0, "Nothing queued");
+        totalQueuedShares -= total;
+        queuedSharesOf[msg.sender] = 0;
+        glpToken.burnFrom(address(this), total);
+        glpToken.mint(msg.sender, total);
+        _advanceHead();
+        emit WithdrawalCancelled(msg.sender, total);
+    }
+
+    function processQueue() external nonReentrant {
+        _processQueue();
     }
 
     /**
-     * @notice Rehabilitate defaulter by recovering written-off debt and replenishing reserve.
+     * @notice Pays queued withdrawals from free cash. If cash covers everything, all are paid;
+     *         otherwise each request is paid the same fraction (pro rata, Maple 2.0 style).
      */
-    function settleWrittenOffDebt() external payable override nonReentrant {
-        uint256 totalDebt = reserveDrawn[msg.sender] + writtenOffDebt[msg.sender];
-        require(totalDebt > 0, "No debt to settle");
-        require(msg.value > 0, "Amount must be > 0");
+    function _processQueue() internal {
+        if (queueHead == queue.length || totalQueuedShares == 0) return;
+        uint256 cash = freeCash();
+        if (cash == 0) return;
 
-        uint256 refund = 0;
-        uint256 settleAmount = msg.value;
-        if (msg.value > totalDebt) {
-            refund = msg.value - totalDebt;
-            settleAmount = totalDebt;
+        uint256 pv = poolValue();
+        uint256 supply = glpToken.totalSupply();
+        uint256 totalValue = (totalQueuedShares * (pv + VIRTUAL_OFFSET)) / (supply + VIRTUAL_OFFSET);
+        if (totalValue == 0) return;
+
+        uint256 end = queue.length;
+        uint256 burnedTotal;
+        for (uint256 i = queueHead; i < end; i++) {
+            WithdrawalRequest storage r = queue[i];
+            if (r.shares == 0) continue;
+            uint256 payShares = cash >= totalValue ? r.shares : (r.shares * cash) / totalValue;
+            if (payShares == 0) continue;
+            uint256 payEth = (payShares * (pv + VIRTUAL_OFFSET)) / (supply + VIRTUAL_OFFSET);
+            r.shares -= payShares;
+            queuedSharesOf[r.owner] -= payShares;
+            burnedTotal += payShares;
+            (bool ok, ) = r.owner.call{value: payEth}("");
+            require(ok, "Queue payout failed");
+            emit WithdrawalPaid(r.owner, payEth, payShares, r.shares);
         }
-
-        // Priority 1: Replenish reserve drawn
-        uint256 reserveRep = 0;
-        if (reserveDrawn[msg.sender] > 0) {
-            reserveRep = settleAmount < reserveDrawn[msg.sender] ? settleAmount : reserveDrawn[msg.sender];
-            reserveDrawn[msg.sender] -= reserveRep;
-            insuranceReserve += reserveRep;
+        if (burnedTotal > 0) {
+            totalQueuedShares -= burnedTotal;
+            glpToken.burnFrom(address(this), burnedTotal);
         }
+        _advanceHead();
+    }
 
-        // Priority 2: Settle memorandum debt (90% free cash / 10% reserve)
-        uint256 remAmount = settleAmount - reserveRep;
-        uint256 memoCleared = 0;
-        if (remAmount > 0) {
-            memoCleared = remAmount;
-            writtenOffDebt[msg.sender] -= memoCleared;
-            uint256 reserveAddition = (memoCleared * 10) / 100;
-            insuranceReserve += reserveAddition;
+    function _advanceHead() internal {
+        while (queueHead < queue.length && queue[queueHead].shares == 0) queueHead++;
+    }
+
+    function queueLength() external view returns (uint256) {
+        return queue.length - queueHead;
+    }
+
+    /// @notice Shares queued ahead of the caller's first open request, and the caller's own.
+    function queuePosition(address user) external view returns (uint256 sharesAhead, uint256 ownShares) {
+        bool found;
+        for (uint256 i = queueHead; i < queue.length; i++) {
+            if (queue[i].owner == user) {
+                found = true;
+                ownShares += queue[i].shares;
+            } else if (!found) {
+                sharesAhead += queue[i].shares;
+            }
         }
+        if (!found) sharesAhead = 0;
+    }
 
-        if (reserveDrawn[msg.sender] == 0 && writtenOffDebt[msg.sender] == 0) {
-            isDefaulter[msg.sender] = false;
+    function _afterStakeChange(address account) internal {
+        uint256 memberId = registry.memberOf(account);
+        if (memberId != 0 && glpToken.balanceOf(account) == 0 && registry.getMember(memberId).stakeSince != 0) {
+            registry.setStakeSince(memberId, 0);
         }
+    }
 
-        if (refund > 0) {
-            (bool success, ) = msg.sender.call{value: refund}("");
-            require(success, "Refund failed");
+    // ─────────────────────────────────────────────────────────────────────
+    // Loan engine hooks (LOAN_ROLE)
+    // ─────────────────────────────────────────────────────────────────────
+
+    function disburse(address to, uint256 amount) external onlyRole(LOAN_ROLE) nonReentrant {
+        require(amount <= freeCash(), "Insufficient pool liquidity");
+        (bool ok, ) = to.call{value: amount}("");
+        require(ok, "Disburse failed");
+    }
+
+    /// @notice Called after cash returns to the pool so queued withdrawals get paid.
+    function onCashIn() external onlyRole(LOAN_ROLE) nonReentrant {
+        _processQueue();
+    }
+
+    function transferToReserve(uint256 amount) external onlyRole(LOAN_ROLE) nonReentrant {
+        if (amount == 0) return;
+        require(amount <= freeCash(), "Insufficient pool liquidity");
+        (bool ok, ) = reserveFund.call{value: amount}("");
+        require(ok, "Reserve transfer failed");
+    }
+
+    /**
+     * @notice Applies locked stake to a debt at the fair share price, i.e. excluding the
+     *         impaired loan's own carried value (V2 "Approach A" impairment isolation).
+     * @param maxShares Locked shares available for this loan.
+     * @param valueWei Debt to cover.
+     * @param excludedCarry Carried value of the impaired loan, left out of the price.
+     */
+    function burnStake(address account, uint256 maxShares, uint256 valueWei, uint256 excludedCarry)
+        external
+        onlyRole(LOAN_ROLE)
+        nonReentrant
+        returns (uint256 sharesBurned, uint256 valueCovered)
+    {
+        if (maxShares == 0 || valueWei == 0) return (0, 0);
+        uint256 pv = poolValue();
+        uint256 fairAssets = pv > excludedCarry ? pv - excludedCarry : 0;
+        uint256 supply = glpToken.totalSupply();
+        uint256 den = fairAssets + VIRTUAL_OFFSET;
+        uint256 needed = (valueWei * (supply + VIRTUAL_OFFSET) + den - 1) / den;
+
+        if (maxShares < needed) {
+            sharesBurned = maxShares;
+            valueCovered = (maxShares * den) / (supply + VIRTUAL_OFFSET);
+            if (valueCovered > valueWei) valueCovered = valueWei;
+        } else {
+            sharesBurned = needed;
+            valueCovered = valueWei;
         }
-
-        emit DebtRecovered(msg.sender, settleAmount, reserveRep, memoCleared, refund);
+        glpToken.unlock(account, sharesBurned);
+        glpToken.burnFrom(account, sharesBurned);
+        _afterStakeChange(account);
+        emit StakeBurned(account, sharesBurned, valueCovered);
     }
 
     receive() external payable {}

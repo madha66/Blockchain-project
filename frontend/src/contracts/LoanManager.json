@@ -1,0 +1,1909 @@
+{
+  "contractName": "LoanManager",
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "admin",
+          "type": "address"
+        },
+        {
+          "internalType": "contract PolicyConfig",
+          "name": "_config",
+          "type": "address"
+        },
+        {
+          "internalType": "contract IdentityRegistry",
+          "name": "_registry",
+          "type": "address"
+        },
+        {
+          "internalType": "contract GLPToken",
+          "name": "_glp",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "inputs": [],
+      "name": "AccessControlBadConfirmation",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "neededRole",
+          "type": "bytes32"
+        }
+      ],
+      "name": "AccessControlUnauthorizedAccount",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "ReentrancyGuardReentrantCall",
+      "type": "error"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "AutopayCollected",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "tenureDays",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "interestRateBps",
+          "type": "uint256"
+        }
+      ],
+      "name": "Borrowed",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "caller",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "BountyPaid",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "borrower",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "EscrowReleased",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "guarantor",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "borrower",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "shares",
+          "type": "uint256"
+        }
+      ],
+      "name": "GuaranteeOffered",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "guarantor",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "borrower",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "shares",
+          "type": "uint256"
+        }
+      ],
+      "name": "GuaranteeWithdrawn",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint16",
+          "name": "number",
+          "type": "uint16"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint64",
+          "name": "dueDate",
+          "type": "uint64"
+        }
+      ],
+      "name": "InstallmentMissed",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint16",
+          "name": "number",
+          "type": "uint16"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "weightBps",
+          "type": "uint256"
+        }
+      ],
+      "name": "InstallmentPaid",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint16",
+          "name": "number",
+          "type": "uint16"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "fee",
+          "type": "uint256"
+        }
+      ],
+      "name": "LateFeeCharged",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
+        }
+      ],
+      "name": "LoanExited",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "borrower",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "enum LoanTypes.LoanKind",
+          "name": "kind",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "principal",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "rateBps",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint16",
+          "name": "nInstallments",
+          "type": "uint16"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint32",
+          "name": "periodDays",
+          "type": "uint32"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "installment",
+          "type": "uint256"
+        }
+      ],
+      "name": "LoanOpened",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
+        }
+      ],
+      "name": "LoanRepaid",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "principalPaid",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "interestPaid",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "refund",
+          "type": "uint256"
+        }
+      ],
+      "name": "Repaid",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "enum LoanTypes.RestructureOption",
+          "name": "option",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint64",
+          "name": "nextDueDate",
+          "type": "uint64"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "installment",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint16",
+          "name": "nInstallments",
+          "type": "uint16"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "fee",
+          "type": "uint256"
+        }
+      ],
+      "name": "RestructureGranted",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "previousAdminRole",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "newAdminRole",
+          "type": "bytes32"
+        }
+      ],
+      "name": "RoleAdminChanged",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "sender",
+          "type": "address"
+        }
+      ],
+      "name": "RoleGranted",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "sender",
+          "type": "address"
+        }
+      ],
+      "name": "RoleRevoked",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "sharesBurned",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "value",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "bool",
+          "name": "guarantor",
+          "type": "bool"
+        }
+      ],
+      "name": "StakeApplied",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "expected",
+          "type": "uint256"
+        }
+      ],
+      "name": "SweepApplied",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "ADMIN_ROLE",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "DEFAULT_ADMIN_ROLE",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "DEFAULT_ROLE",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "ROUTER_ROLE",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        }
+      ],
+      "name": "accrueLate",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "activeLoanIds",
+      "outputs": [
+        {
+          "internalType": "uint256[]",
+          "name": "",
+          "type": "uint256[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        }
+      ],
+      "name": "amountDue",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "worker",
+          "type": "address"
+        }
+      ],
+      "name": "applySweep",
+      "outputs": [],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        }
+      ],
+      "name": "autopay",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        }
+      ],
+      "name": "carriedOf",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "carriedValue",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "total",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        }
+      ],
+      "name": "closeDefaulted",
+      "outputs": [
+        {
+          "components": [
+            {
+              "internalType": "uint256",
+              "name": "id",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "memberId",
+              "type": "uint256"
+            },
+            {
+              "internalType": "address",
+              "name": "borrower",
+              "type": "address"
+            },
+            {
+              "internalType": "enum LoanTypes.LoanKind",
+              "name": "kind",
+              "type": "uint8"
+            },
+            {
+              "internalType": "enum LoanTypes.LoanStatus",
+              "name": "status",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint256",
+              "name": "principal",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "outstandingPrincipal",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "rateBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint32",
+              "name": "periodDays",
+              "type": "uint32"
+            },
+            {
+              "internalType": "uint16",
+              "name": "nInstallments",
+              "type": "uint16"
+            },
+            {
+              "internalType": "uint16",
+              "name": "paidCount",
+              "type": "uint16"
+            },
+            {
+              "internalType": "uint256",
+              "name": "installment",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint64",
+              "name": "startAt",
+              "type": "uint64"
+            },
+            {
+              "internalType": "uint64",
+              "name": "nextDueDate",
+              "type": "uint64"
+            },
+            {
+              "internalType": "uint64",
+              "name": "firstMissedAt",
+              "type": "uint64"
+            },
+            {
+              "internalType": "uint256",
+              "name": "lateFeesDue",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "stakeLocked",
+              "type": "uint256"
+            },
+            {
+              "internalType": "address",
+              "name": "guarantor",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "guarantorStakeLocked",
+              "type": "uint256"
+            },
+            {
+              "internalType": "bool",
+              "name": "askedForHelp",
+              "type": "bool"
+            },
+            {
+              "internalType": "bool",
+              "name": "restructured",
+              "type": "bool"
+            },
+            {
+              "internalType": "enum LoanTypes.RestructureOption",
+              "name": "activeRestructure",
+              "type": "uint8"
+            },
+            {
+              "internalType": "enum LoanTypes.DefaultType",
+              "name": "dtype",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint64",
+              "name": "classifiedAt",
+              "type": "uint64"
+            },
+            {
+              "internalType": "bool",
+              "name": "appealOpen",
+              "type": "bool"
+            },
+            {
+              "internalType": "uint256",
+              "name": "interestRemaining",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "curInterestPortion",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "curPrincipalPortion",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "curInterestPaid",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "curPrincipalPaid",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint16",
+              "name": "lateFeeChargedFor",
+              "type": "uint16"
+            },
+            {
+              "internalType": "uint16",
+              "name": "lateMarkedFor",
+              "type": "uint16"
+            },
+            {
+              "internalType": "uint16",
+              "name": "helpFor",
+              "type": "uint16"
+            },
+            {
+              "internalType": "uint16",
+              "name": "missedFor",
+              "type": "uint16"
+            },
+            {
+              "internalType": "uint8",
+              "name": "tierAtOpen",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint32",
+              "name": "cohortId",
+              "type": "uint32"
+            },
+            {
+              "internalType": "uint64",
+              "name": "restructureEndsAt",
+              "type": "uint64"
+            },
+            {
+              "internalType": "uint256",
+              "name": "escrow",
+              "type": "uint256"
+            },
+            {
+              "internalType": "bool",
+              "name": "autopay",
+              "type": "bool"
+            }
+          ],
+          "internalType": "struct LoanTypes.Loan",
+          "name": "snapshot",
+          "type": "tuple"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "name": "clusterExposure",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        }
+      ],
+      "name": "collect",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "config",
+      "outputs": [
+        {
+          "internalType": "contract PolicyConfig",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "defaults",
+      "outputs": [
+        {
+          "internalType": "contract IDefaultManager",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        }
+      ],
+      "name": "exitLoan",
+      "outputs": [],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        }
+      ],
+      "name": "getLoan",
+      "outputs": [
+        {
+          "components": [
+            {
+              "internalType": "uint256",
+              "name": "id",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "memberId",
+              "type": "uint256"
+            },
+            {
+              "internalType": "address",
+              "name": "borrower",
+              "type": "address"
+            },
+            {
+              "internalType": "enum LoanTypes.LoanKind",
+              "name": "kind",
+              "type": "uint8"
+            },
+            {
+              "internalType": "enum LoanTypes.LoanStatus",
+              "name": "status",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint256",
+              "name": "principal",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "outstandingPrincipal",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "rateBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint32",
+              "name": "periodDays",
+              "type": "uint32"
+            },
+            {
+              "internalType": "uint16",
+              "name": "nInstallments",
+              "type": "uint16"
+            },
+            {
+              "internalType": "uint16",
+              "name": "paidCount",
+              "type": "uint16"
+            },
+            {
+              "internalType": "uint256",
+              "name": "installment",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint64",
+              "name": "startAt",
+              "type": "uint64"
+            },
+            {
+              "internalType": "uint64",
+              "name": "nextDueDate",
+              "type": "uint64"
+            },
+            {
+              "internalType": "uint64",
+              "name": "firstMissedAt",
+              "type": "uint64"
+            },
+            {
+              "internalType": "uint256",
+              "name": "lateFeesDue",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "stakeLocked",
+              "type": "uint256"
+            },
+            {
+              "internalType": "address",
+              "name": "guarantor",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "guarantorStakeLocked",
+              "type": "uint256"
+            },
+            {
+              "internalType": "bool",
+              "name": "askedForHelp",
+              "type": "bool"
+            },
+            {
+              "internalType": "bool",
+              "name": "restructured",
+              "type": "bool"
+            },
+            {
+              "internalType": "enum LoanTypes.RestructureOption",
+              "name": "activeRestructure",
+              "type": "uint8"
+            },
+            {
+              "internalType": "enum LoanTypes.DefaultType",
+              "name": "dtype",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint64",
+              "name": "classifiedAt",
+              "type": "uint64"
+            },
+            {
+              "internalType": "bool",
+              "name": "appealOpen",
+              "type": "bool"
+            },
+            {
+              "internalType": "uint256",
+              "name": "interestRemaining",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "curInterestPortion",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "curPrincipalPortion",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "curInterestPaid",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "curPrincipalPaid",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint16",
+              "name": "lateFeeChargedFor",
+              "type": "uint16"
+            },
+            {
+              "internalType": "uint16",
+              "name": "lateMarkedFor",
+              "type": "uint16"
+            },
+            {
+              "internalType": "uint16",
+              "name": "helpFor",
+              "type": "uint16"
+            },
+            {
+              "internalType": "uint16",
+              "name": "missedFor",
+              "type": "uint16"
+            },
+            {
+              "internalType": "uint8",
+              "name": "tierAtOpen",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint32",
+              "name": "cohortId",
+              "type": "uint32"
+            },
+            {
+              "internalType": "uint64",
+              "name": "restructureEndsAt",
+              "type": "uint64"
+            },
+            {
+              "internalType": "uint256",
+              "name": "escrow",
+              "type": "uint256"
+            },
+            {
+              "internalType": "bool",
+              "name": "autopay",
+              "type": "bool"
+            }
+          ],
+          "internalType": "struct LoanTypes.Loan",
+          "name": "",
+          "type": "tuple"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        }
+      ],
+      "name": "getRoleAdmin",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "glp",
+      "outputs": [
+        {
+          "internalType": "contract GLPToken",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "grantRole",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "growthWindowStart",
+      "outputs": [
+        {
+          "internalType": "uint64",
+          "name": "",
+          "type": "uint64"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
+        }
+      ],
+      "name": "hasOpenLoan",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "hasRole",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "loanCount",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
+        }
+      ],
+      "name": "loansOfMember",
+      "outputs": [
+        {
+          "internalType": "uint256[]",
+          "name": "",
+          "type": "uint256[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        }
+      ],
+      "name": "markDefault",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "memberStats",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "largestCompleted",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "largestCompletedUnsecured",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint32",
+          "name": "builderCompleted",
+          "type": "uint32"
+        },
+        {
+          "internalType": "uint64",
+          "name": "lastStepAt",
+          "type": "uint64"
+        },
+        {
+          "internalType": "uint64",
+          "name": "prevStepAt",
+          "type": "uint64"
+        },
+        {
+          "internalType": "uint32",
+          "name": "builderSinceDefault",
+          "type": "uint32"
+        },
+        {
+          "internalType": "bool",
+          "name": "hadDefault",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "borrower",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "shares",
+          "type": "uint256"
+        }
+      ],
+      "name": "offerGuarantee",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "enum LoanTypes.LoanKind",
+          "name": "kind",
+          "type": "uint8"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint16",
+          "name": "nInstallments",
+          "type": "uint16"
+        },
+        {
+          "internalType": "address",
+          "name": "guarantor",
+          "type": "address"
+        },
+        {
+          "internalType": "bool",
+          "name": "autopayOn",
+          "type": "bool"
+        }
+      ],
+      "name": "openLoan",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "openLoanOf",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "originatedInWindow",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        }
+      ],
+      "name": "payoffAmount",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "payouts",
+      "outputs": [
+        {
+          "internalType": "contract IPayoutRouter",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "pledges",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "pool",
+      "outputs": [
+        {
+          "internalType": "contract ILendingPoolV3",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "registry",
+      "outputs": [
+        {
+          "internalType": "contract IdentityRegistry",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "callerConfirmation",
+          "type": "address"
+        }
+      ],
+      "name": "renounceRole",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        }
+      ],
+      "name": "repayInstallment",
+      "outputs": [],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "enum LoanTypes.RestructureOption",
+          "name": "option",
+          "type": "uint8"
+        }
+      ],
+      "name": "requestRestructure",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "reserve",
+      "outputs": [
+        {
+          "internalType": "address payable",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "revokeRole",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "risk",
+      "outputs": [
+        {
+          "internalType": "contract IRiskEngine",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "score",
+      "outputs": [
+        {
+          "internalType": "contract ICreditScore",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "enum LoanTypes.DefaultType",
+          "name": "dtype",
+          "type": "uint8"
+        },
+        {
+          "internalType": "uint64",
+          "name": "classifiedAt",
+          "type": "uint64"
+        },
+        {
+          "internalType": "bool",
+          "name": "appealOpen",
+          "type": "bool"
+        }
+      ],
+      "name": "setDefaultInfo",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "loanId",
+          "type": "uint256"
+        }
+      ],
+      "name": "stageOf",
+      "outputs": [
+        {
+          "internalType": "enum LoanTypes.Stage",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes4",
+          "name": "interfaceId",
+          "type": "bytes4"
+        }
+      ],
+      "name": "supportsInterface",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "worker",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "payoutAmount",
+          "type": "uint256"
+        }
+      ],
+      "name": "sweepQuote",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "totalOutstanding",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "vault",
+      "outputs": [
+        {
+          "internalType": "contract ISafeRepayVault",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_pool",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_score",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_vault",
+          "type": "address"
+        },
+        {
+          "internalType": "address payable",
+          "name": "_reserve",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_payouts",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_risk",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_defaults",
+          "type": "address"
+        }
+      ],
+      "name": "wire",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "borrower",
+          "type": "address"
+        }
+      ],
+      "name": "withdrawGuarantee",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "stateMutability": "payable",
+      "type": "receive"
+    }
+  ]
+}

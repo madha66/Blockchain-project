@@ -19,7 +19,7 @@ const envAddress = (name) =>
 // Addresses come from addresses.json (written by deploy.js); VITE_<NAME>_ADDRESS overrides.
 export const CONTRACT_ADDRESSES = Object.fromEntries(
   Object.keys({ ...DEPLOYED, ...ABIS })
-    .filter((name) => name !== 'chainId')
+    .filter((name) => name !== 'chainId' && name !== 'inrPerEthDemo')
     .map((name) => [name, envAddress(name) || DEPLOYED[name] || null])
 );
 

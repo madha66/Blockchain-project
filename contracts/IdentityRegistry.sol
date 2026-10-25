@@ -81,6 +81,8 @@ contract IdentityRegistry is AccessControl {
     mapping(uint32 => uint32) public cohortFirstLoans;
     mapping(uint32 => uint32) public cohortFirstPaymentDefaults;
     mapping(uint256 => uint64[2]) private _restructureTimes;
+    mapping(uint32 => uint64) public shockUntil;
+    mapping(uint32 => bytes32) public shockEvent;
 
     event MemberRegistered(uint256 indexed memberId, address indexed wallet, uint32 cohortId, bytes32 clusterId);
     event WalletLinked(uint256 indexed memberId, address indexed wallet);
@@ -92,6 +94,7 @@ contract IdentityRegistry is AccessControl {
     event TierChanged(uint256 indexed memberId, uint8 tier);
     event MisdeclaredDebtFlagged(uint256 indexed memberId, bool flagged);
     event StakeSinceSet(uint256 indexed memberId, uint64 stakeSince);
+    event ShockModeSet(uint32 indexed cohortId, uint64 until, bytes32 eventHash);
 
     constructor(address admin, address attester, PolicyConfig _config) {
         config = _config;
@@ -354,6 +357,20 @@ contract IdentityRegistry is AccessControl {
     function setCohortPaused(uint32 cohortId, bool paused) external onlyRole(ADMIN_ROLE) {
         cohortPausedManual[cohortId] = paused;
         emit CohortPauseSet(cohortId, paused);
+    }
+
+    /**
+     * @notice Systemic-shock mode for one cohort (platform outage, city-wide disruption),
+     *         backed by an attested event hash: longer grace, no late fees and no late score
+     *         effects for that cohort's loans. It never touches principal. `until` in the past
+     *         ends it early. Production: ADMIN_ROLE is a Safe multisig.
+     */
+    function setShockMode(uint32 cohortId, uint64 until, bytes32 eventHash) external onlyRole(ADMIN_ROLE) {
+        require(eventHash != bytes32(0), "Attested event required");
+        require(until <= block.timestamp + config.get("shockMaxDays") * config.secondsPerDay(), "Shock window too long");
+        shockUntil[cohortId] = until;
+        shockEvent[cohortId] = eventHash;
+        emit ShockModeSet(cohortId, until, eventHash);
     }
 
     function flagMisdeclaredDebt(uint256 memberId, bool flagged) external onlyRole(ADMIN_ROLE) {

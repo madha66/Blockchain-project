@@ -1,5 +1,6 @@
 import { expect } from "chai";
 import hre from "hardhat";
+import { deployGigLend, register, openLoan, LOOSE, Kind } from "./helpers/fixture.js";
 
 const { ethers } = hre;
 
@@ -12,8 +13,9 @@ const { ethers } = hre;
  * - Validates chain ID
  */
 class EventSyncEngine {
-  constructor(contract, userAddress, targetChainId = 31337) {
-    this.contract = contract;
+  // `contracts` may be one contract or several (LendingPool + LoanManager, as useEventSync does).
+  constructor(contracts, userAddress, targetChainId = 31337) {
+    this.contracts = Array.isArray(contracts) ? contracts : [contracts];
     this.userAddress = userAddress ? userAddress.toLowerCase() : null;
     this.targetChainId = targetChainId;
     this.seenLogKeys = new Set();
@@ -51,14 +53,13 @@ class EventSyncEngine {
       return [];
     }
 
-    const contractAddress = await this.contract.getAddress();
-    const filter = {
-      address: contractAddress,
-      fromBlock,
-      toBlock
-    };
-
-    const logs = await ethers.provider.getLogs(filter);
+    const addresses = await Promise.all(this.contracts.map((c) => c.getAddress()));
+    const logs = (
+      await Promise.all(addresses.map((address) => ethers.provider.getLogs({ address, fromBlock, toBlock })))
+    )
+      .flat()
+      .sort((a, b) => a.blockNumber - b.blockNumber || (a.index ?? a.logIndex) - (b.index ?? b.logIndex));
+    const byAddress = Object.fromEntries(addresses.map((a, i) => [a.toLowerCase(), this.contracts[i]]));
     const newItems = [];
 
     for (const log of logs) {
@@ -69,7 +70,7 @@ class EventSyncEngine {
       this.seenLogKeys.add(key);
 
       try {
-        const parsed = this.contract.interface.parseLog(log);
+        const parsed = byAddress[log.address.toLowerCase()].interface.parseLog(log);
         if (parsed) {
           const item = {
             key,
@@ -104,41 +105,22 @@ class EventSyncEngine {
   }
 }
 
-describe("GigLend V2 Cross-Client Event Synchronization Suite", function () {
-  let creditScore;
-  let glpToken;
-  let lendingPool;
+describe("GigLend Cross-Client Event Synchronization Suite (migrated to V3)", function () {
+  let ctx, lendingPool, loanManager, glpToken;
   let owner, alice, bob;
   let clientA, clientB;
   let startBlock;
 
   beforeEach(async function () {
-    [owner, alice, bob] = await ethers.getSigners();
-
-    // Deploy contracts
-    const CreditScoreFactory = await ethers.getContractFactory("CreditScore");
-    creditScore = await CreditScoreFactory.deploy();
-    await creditScore.waitForDeployment();
-
-    const GLPTokenFactory = await ethers.getContractFactory("GLPToken");
-    glpToken = await GLPTokenFactory.deploy();
-    await glpToken.waitForDeployment();
-
-    const LendingPoolFactory = await ethers.getContractFactory("LendingPool");
-    lendingPool = await LendingPoolFactory.deploy(
-      await glpToken.getAddress(),
-      await creditScore.getAddress()
-    );
-    await lendingPool.waitForDeployment();
-
-    await glpToken.setLendingPool(await lendingPool.getAddress());
-    await creditScore.setLendingPool(await lendingPool.getAddress());
-
+    ctx = await deployGigLend(LOOSE);
+    ({ pool: lendingPool, loanManager, glp: glpToken } = ctx);
+    owner = ctx.admin;
+    [alice, bob] = ctx.users;
     startBlock = await ethers.provider.getBlockNumber();
 
-    // Initialize two independent client sync engines
-    clientA = new EventSyncEngine(lendingPool, alice.address, 31337);
-    clientB = new EventSyncEngine(lendingPool, bob.address, 31337);
+    // Like useEventSync: both clients follow the pool and the loan engine.
+    clientA = new EventSyncEngine([lendingPool, loanManager], alice.address, 31337);
+    clientB = new EventSyncEngine([lendingPool, loanManager], bob.address, 31337);
   });
 
   it("1. Client A deposits -> Client B sees confirmed update & pool liquidity", async function () {
@@ -163,23 +145,21 @@ describe("GigLend V2 Cross-Client Event Synchronization Suite", function () {
     expect(depositEv.args.amount).to.equal(depositAmount);
 
     // Client B queries updated pool liquidity
-    const poolBal = await ethers.provider.getBalance(await lendingPool.getAddress());
-    const reserve = await lendingPool.insuranceReserve();
-    const freeCash = poolBal - reserve;
-    expect(freeCash).to.equal(depositAmount);
+    expect(await lendingPool.freeCash()).to.equal(depositAmount);
   });
 
   it("2. Client A borrows -> Client B sees confirmed loan event and updated pool state", async function () {
     // Fund pool with 5 ETH from owner
     await lendingPool.connect(owner).deposit({ value: ethers.parseEther("5.0") });
-    // Alice qualifies with 0.1 ETH deposit
+    // Alice is a verified, registered member
     await lendingPool.connect(alice).deposit({ value: ethers.parseEther("0.1") });
+    await register(ctx, alice);
 
     const b0 = await ethers.provider.getBlockNumber();
 
-    // Client A borrows 0.3 ETH for 30 days
+    // Client A borrows 0.3 ETH over 2 weekly installments (14 days)
     const borrowAmount = ethers.parseEther("0.3");
-    const tx = await lendingPool.connect(alice)["borrow(uint256,uint256)"](borrowAmount, 30);
+    const tx = await loanManager.connect(alice).openLoan(Kind.Builder, borrowAmount, 2, ethers.ZeroAddress, false);
     const receipt = await tx.wait();
 
     // Client B syncs
@@ -190,25 +170,25 @@ describe("GigLend V2 Cross-Client Event Synchronization Suite", function () {
     expect(origEvents.length).to.equal(1);
     expect(origEvents[0].args.user.toLowerCase()).to.equal(alice.address.toLowerCase());
     expect(origEvents[0].args.amount).to.equal(borrowAmount);
-    expect(origEvents[0].args.tenureDays).to.equal(30n);
+    expect(origEvents[0].args.tenureDays).to.equal(14n);
 
-    // Client B observes totalPoolLoans update
-    const totalLoans = await lendingPool.totalActiveLoans();
-    expect(totalLoans).to.equal(borrowAmount);
+    // Client B observes the outstanding-loans update
+    expect(await loanManager.totalOutstanding()).to.equal(borrowAmount);
   });
 
   it("3. Repayment updates both clients", async function () {
     // Setup deposit and borrow for Alice
     await lendingPool.connect(owner).deposit({ value: ethers.parseEther("5.0") });
     await lendingPool.connect(alice).deposit({ value: ethers.parseEther("0.1") });
+    await register(ctx, alice);
     const borrowAmount = ethers.parseEther("0.2");
-    await lendingPool.connect(alice)["borrow(uint256,uint256)"](borrowAmount, 14);
+    const { loanId } = await openLoan(ctx, alice, { amount: borrowAmount });
 
     const b0 = await ethers.provider.getBlockNumber();
 
-    // Repay partial loan
+    // Repay part of the loan (interest first, then principal)
     const repayAmount = ethers.parseEther("0.1");
-    const tx = await lendingPool.connect(alice).repay({ value: repayAmount });
+    const tx = await loanManager.connect(alice).repayInstallment(loanId, { value: repayAmount });
     const receipt = await tx.wait();
 
     // Both clients sync
@@ -224,8 +204,8 @@ describe("GigLend V2 Cross-Client Event Synchronization Suite", function () {
     expect(bEvents[0].args.amount).to.equal(repayAmount);
 
     // Both see reduced principal
-    const aliceLoan = await lendingPool.loans(alice.address);
-    expect(aliceLoan.principal).to.be.lessThan(borrowAmount);
+    const aliceLoan = await loanManager.getLoan(loanId);
+    expect(aliceLoan.outstandingPrincipal).to.be.lessThan(borrowAmount);
   });
 
   it("4. Withdrawal updates both clients", async function () {
@@ -258,6 +238,7 @@ describe("GigLend V2 Cross-Client Event Synchronization Suite", function () {
     // Pool has 0.5 ETH total capital (0.45 ETH owner + 0.05 ETH Alice)
     await lendingPool.connect(owner).deposit({ value: ethers.parseEther("0.45") });
     await lendingPool.connect(alice).deposit({ value: ethers.parseEther("0.05") });
+    await register(ctx, alice);
 
     const bSetup = await ethers.provider.getBlockNumber();
     await clientA.syncEvents(startBlock, bSetup);
@@ -266,9 +247,9 @@ describe("GigLend V2 Cross-Client Event Synchronization Suite", function () {
     const countBeforeA = clientA.getProtocolEvents().length;
     const countBeforeB = clientB.getProtocolEvents().length;
 
-    // Alice has limit 0.5 ETH. Attempting 0.48 ETH exceeds 90% cap (0.48 / 0.5 = 96%)
+    // 0.48 ETH of a 0.5 ETH pool exceeds the 90% cap (96%)
     await expect(
-      lendingPool.connect(alice)["borrow(uint256,uint256)"](ethers.parseEther("0.48"), 30)
+      loanManager.connect(alice).openLoan(Kind.Builder, ethers.parseEther("0.48"), 2, ethers.ZeroAddress, false)
     ).to.be.revertedWith("Utilization exceeds 90% cap");
 
     const bAfter = await ethers.provider.getBlockNumber();
@@ -291,7 +272,8 @@ describe("GigLend V2 Cross-Client Event Synchronization Suite", function () {
 
     // While B is offline, Alice deposits and then borrows
     await lendingPool.connect(alice).deposit({ value: ethers.parseEther("2.0") });
-    await lendingPool.connect(alice)["borrow(uint256,uint256)"](ethers.parseEther("0.2"), 14);
+    await register(ctx, alice);
+    await openLoan(ctx, alice, { amount: ethers.parseEther("0.2") });
 
     const bOffline = await ethers.provider.getBlockNumber();
 

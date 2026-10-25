@@ -2,19 +2,29 @@
   "contractName": "CreditScore",
   "abi": [
     {
-      "inputs": [],
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "admin",
+          "type": "address"
+        },
+        {
+          "internalType": "contract PolicyConfig",
+          "name": "_config",
+          "type": "address"
+        },
+        {
+          "internalType": "contract IdentityRegistry",
+          "name": "_registry",
+          "type": "address"
+        }
+      ],
       "stateMutability": "nonpayable",
       "type": "constructor"
     },
     {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "owner",
-          "type": "address"
-        }
-      ],
-      "name": "OwnableInvalidOwner",
+      "inputs": [],
+      "name": "AccessControlBadConfirmation",
       "type": "error"
     },
     {
@@ -23,9 +33,14 @@
           "internalType": "address",
           "name": "account",
           "type": "address"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "neededRole",
+          "type": "bytes32"
         }
       ],
-      "name": "OwnableUnauthorizedAccount",
+      "name": "AccessControlUnauthorizedAccount",
       "type": "error"
     },
     {
@@ -33,29 +48,238 @@
       "inputs": [
         {
           "indexed": true,
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "previousAdminRole",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "newAdminRole",
+          "type": "bytes32"
+        }
+      ],
+      "name": "RoleAdminChanged",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
           "internalType": "address",
-          "name": "previousOwner",
+          "name": "account",
           "type": "address"
         },
         {
           "indexed": true,
           "internalType": "address",
-          "name": "newOwner",
+          "name": "sender",
           "type": "address"
         }
       ],
-      "name": "OwnershipTransferred",
+      "name": "RoleGranted",
       "type": "event"
     },
     {
+      "anonymous": false,
       "inputs": [
         {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
           "internalType": "address",
-          "name": "",
+          "name": "account",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "sender",
           "type": "address"
         }
       ],
-      "name": "defaultsCount",
+      "name": "RoleRevoked",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "int256",
+          "name": "delta",
+          "type": "int256"
+        },
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "disputeId",
+          "type": "uint256"
+        }
+      ],
+      "name": "ScoreAdjusted",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "int256",
+          "name": "delta",
+          "type": "int256"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "reasonCode",
+          "type": "bytes32"
+        }
+      ],
+      "name": "ScoreChanged",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "disputeId",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes32",
+          "name": "reasonCode",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes32",
+          "name": "detailHash",
+          "type": "bytes32"
+        }
+      ],
+      "name": "ScoreDisputed",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "ADMIN_ROLE",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "DEFAULT_ADMIN_ROLE",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "DISPUTE_ROLE",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "LOAN_ROLE",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "MAX_SCARS",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "MAX_SCORE",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "MIN_SCORE",
       "outputs": [
         {
           "internalType": "uint256",
@@ -69,12 +293,60 @@
     {
       "inputs": [
         {
-          "internalType": "address",
-          "name": "user",
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "enum LoanTypes.DefaultType",
+          "name": "dtype",
+          "type": "uint8"
+        }
+      ],
+      "name": "addScar",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "int256",
+          "name": "delta",
+          "type": "int256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "disputeId",
+          "type": "uint256"
+        }
+      ],
+      "name": "adjustScore",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "config",
+      "outputs": [
+        {
+          "internalType": "contract PolicyConfig",
+          "name": "",
           "type": "address"
         }
       ],
-      "name": "getBorrowLimit",
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "disputeCount",
       "outputs": [
         {
           "internalType": "uint256",
@@ -88,9 +360,52 @@
     {
       "inputs": [
         {
-          "internalType": "address",
-          "name": "user",
-          "type": "address"
+          "internalType": "bytes32",
+          "name": "reasonCode",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "detailHash",
+          "type": "bytes32"
+        }
+      ],
+      "name": "disputeScore",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "disputeId",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        }
+      ],
+      "name": "getRoleAdmin",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
         }
       ],
       "name": "getScore",
@@ -107,12 +422,17 @@
     {
       "inputs": [
         {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
           "internalType": "address",
-          "name": "user",
+          "name": "account",
           "type": "address"
         }
       ],
-      "name": "initUser",
+      "name": "grantRole",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -120,12 +440,165 @@
     {
       "inputs": [
         {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
           "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "hasRole",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "weightBps",
+          "type": "uint256"
+        }
+      ],
+      "name": "recordInstallment",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
+        }
+      ],
+      "name": "recordLateMark",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
+        }
+      ],
+      "name": "recordLoanCompleted",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
+        }
+      ],
+      "name": "recordRestructure",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "registry",
+      "outputs": [
+        {
+          "internalType": "contract IdentityRegistry",
           "name": "",
           "type": "address"
         }
       ],
-      "name": "lateCount",
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "callerConfirmation",
+          "type": "address"
+        }
+      ],
+      "name": "renounceRole",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "enum LoanTypes.DefaultType",
+          "name": "dtype",
+          "type": "uint8"
+        }
+      ],
+      "name": "resizeScar",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "revokeRole",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "size",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint64",
+          "name": "startedAt",
+          "type": "uint64"
+        }
+      ],
+      "name": "scarStrength",
       "outputs": [
         {
           "internalType": "uint256",
@@ -137,66 +610,50 @@
       "type": "function"
     },
     {
-      "inputs": [],
-      "name": "lendingPool",
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
+        }
+      ],
+      "name": "scarsOf",
       "outputs": [
         {
-          "internalType": "address",
+          "components": [
+            {
+              "internalType": "uint256",
+              "name": "size",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint64",
+              "name": "startedAt",
+              "type": "uint64"
+            },
+            {
+              "internalType": "uint8",
+              "name": "dtype",
+              "type": "uint8"
+            }
+          ],
+          "internalType": "struct CreditScore.Scar[]",
           "name": "",
-          "type": "address"
+          "type": "tuple[]"
         }
       ],
       "stateMutability": "view",
       "type": "function"
     },
     {
-      "inputs": [],
-      "name": "owner",
-      "outputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
       "inputs": [
         {
           "internalType": "address",
-          "name": "user",
+          "name": "wallet",
           "type": "address"
         }
       ],
-      "name": "penalizeDefault",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "user",
-          "type": "address"
-        }
-      ],
-      "name": "recordLateRepayment",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "name": "rehabilitationCooldownUntil",
+      "name": "scoreOfWallet",
       "outputs": [
         {
           "internalType": "uint256",
@@ -208,21 +665,24 @@
       "type": "function"
     },
     {
-      "inputs": [],
-      "name": "renounceOwnership",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
       "inputs": [
         {
-          "internalType": "address",
-          "name": "_lendingPool",
-          "type": "address"
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "keepBps",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "reason",
+          "type": "bytes32"
         }
       ],
-      "name": "setLendingPool",
+      "name": "shrinkScar",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -230,32 +690,56 @@
     {
       "inputs": [
         {
-          "internalType": "address",
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
+        }
+      ],
+      "name": "stakeAgePoints",
+      "outputs": [
+        {
+          "internalType": "uint256",
           "name": "",
-          "type": "address"
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
         }
       ],
       "name": "stats",
       "outputs": [
         {
           "internalType": "uint256",
-          "name": "repaymentsCount",
+          "name": "installmentWeightBps",
           "type": "uint256"
         },
         {
-          "internalType": "uint256",
-          "name": "totalAmountRepaid",
-          "type": "uint256"
+          "internalType": "uint32",
+          "name": "completedLoans",
+          "type": "uint32"
         },
         {
-          "internalType": "uint256",
-          "name": "joinedAt",
-          "type": "uint256"
+          "internalType": "uint32",
+          "name": "lateMarks",
+          "type": "uint32"
         },
         {
-          "internalType": "uint256",
-          "name": "simulatedIncome",
-          "type": "uint256"
+          "internalType": "uint32",
+          "name": "restructures",
+          "type": "uint32"
+        },
+        {
+          "internalType": "int256",
+          "name": "manualAdjustment",
+          "type": "int256"
         }
       ],
       "stateMutability": "view",
@@ -264,32 +748,39 @@
     {
       "inputs": [
         {
-          "internalType": "address",
-          "name": "newOwner",
-          "type": "address"
+          "internalType": "bytes4",
+          "name": "interfaceId",
+          "type": "bytes4"
         }
       ],
-      "name": "transferOwnership",
-      "outputs": [],
-      "stateMutability": "nonpayable",
+      "name": "supportsInterface",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
       "type": "function"
     },
     {
       "inputs": [
         {
-          "internalType": "address",
-          "name": "user",
-          "type": "address"
-        },
-        {
           "internalType": "uint256",
-          "name": "amount",
+          "name": "memberId",
           "type": "uint256"
         }
       ],
-      "name": "updateRepayment",
-      "outputs": [],
-      "stateMutability": "nonpayable",
+      "name": "totalScar",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "total",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
       "type": "function"
     }
   ]

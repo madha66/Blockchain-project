@@ -1,0 +1,221 @@
+{
+  "contractName": "RiskEngine",
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "contract PolicyConfig",
+          "name": "_config",
+          "type": "address"
+        },
+        {
+          "internalType": "contract IdentityRegistry",
+          "name": "_registry",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_loans",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_pool",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_score",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "inputs": [],
+      "name": "config",
+      "outputs": [
+        {
+          "internalType": "contract PolicyConfig",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
+        }
+      ],
+      "name": "limits",
+      "outputs": [
+        {
+          "components": [
+            {
+              "internalType": "uint256",
+              "name": "builderCap",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "unsecuredCap",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "maxMonthlyInstallment",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "perLoanCap",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "clusterRoom",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "weeklyRoom",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "liquidityRoom",
+              "type": "uint256"
+            },
+            {
+              "internalType": "bool",
+              "name": "unsecuredAllowed",
+              "type": "bool"
+            },
+            {
+              "internalType": "string",
+              "name": "unsecuredHold",
+              "type": "string"
+            },
+            {
+              "internalType": "bool",
+              "name": "fastClimberHeld",
+              "type": "bool"
+            },
+            {
+              "internalType": "bool",
+              "name": "cohortPaused",
+              "type": "bool"
+            }
+          ],
+          "internalType": "struct RiskEngine.Limits",
+          "name": "lim",
+          "type": "tuple"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "loans",
+      "outputs": [
+        {
+          "internalType": "contract ILoanBook",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "pool",
+      "outputs": [
+        {
+          "internalType": "contract ILendingPoolV3",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "memberId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "enum LoanTypes.LoanKind",
+          "name": "kind",
+          "type": "uint8"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint16",
+          "name": "nInstallments",
+          "type": "uint16"
+        }
+      ],
+      "name": "quote",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "rateBps",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "totalInterest",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "installment",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "registry",
+      "outputs": [
+        {
+          "internalType": "contract IdentityRegistry",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "score",
+      "outputs": [
+        {
+          "internalType": "contract IScore",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ]
+}

@@ -39,13 +39,13 @@ library InterestLib {
     }
 
     /**
-     * @notice Computes credit-risk rate surcharge based on 0-100 credit score.
+     * @notice Credit-risk rate surcharge on the 300–900 score scale.
      */
     function calculateRiskSurcharge(uint256 creditScore) internal pure returns (uint256) {
-        if (creditScore >= 90) return 0;       // Elite: 0% surcharge
-        if (creditScore >= 75) return 50;      // Tier 3: +0.50%
-        if (creditScore >= 60) return 100;     // Tier 2: +1.00%
-        return 200;                            // Base/Subprime: +2.00%
+        if (creditScore >= 800) return 0;      // Prime band: 0% surcharge
+        if (creditScore >= 700) return 50;     // Trusted band: +0.50%
+        if (creditScore >= 600) return 100;    // Standard band: +1.00%
+        return 200;                            // New/Builder band: +2.00%
     }
 
     /**
@@ -60,5 +60,21 @@ library InterestLib {
         if (principal == 0 || rateBps == 0 || timeElapsedSeconds == 0) return 0;
         uint256 yearSeconds = 365 * secondsPerDay;
         return (principal * rateBps * timeElapsedSeconds) / (10000 * yearSeconds);
+    }
+
+    /**
+     * @notice Fixed-installment schedule from simple interest over the whole tenure.
+     *         Interest is computed in policy days so time compression does not change it.
+     * @return totalInterest Interest over all installments.
+     * @return installment Fixed installment (rounded up; the last one absorbs rounding).
+     */
+    function amortise(
+        uint256 principal,
+        uint256 rateBps,
+        uint256 nInstallments,
+        uint256 periodDays
+    ) internal pure returns (uint256 totalInterest, uint256 installment) {
+        totalInterest = (principal * rateBps * nInstallments * periodDays) / (10000 * 365);
+        installment = (principal + totalInterest + nInstallments - 1) / nInstallments;
     }
 }

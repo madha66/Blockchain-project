@@ -62,7 +62,8 @@ export const getSyncProvider = (fallbackBrowserProvider) => {
 
 /**
  * Client-side calculation helper mirroring InterestLib.sol for live preview before borrow submission.
- * Exact locked rate is confirmed on-chain at loan origination.
+ * `creditScore` is on the 300–900 scale. The exact locked rate comes from RiskEngine.quote and is
+ * fixed on-chain at loan origination.
  */
 export const calculateEstimatedRateBps = (proposedBorrowWei, currentFreeCashWei, currentActiveLoansWei, creditScore) => {
   const BASE_RATE_BPS = 400n; // 4.00%
@@ -86,9 +87,9 @@ export const calculateEstimatedRateBps = (proposedBorrowWei, currentFreeCashWei,
   }
 
   let surchargeBps = 200n;
-  if (creditScore >= 90) surchargeBps = 0n;
-  else if (creditScore >= 75) surchargeBps = 50n;
-  else if (creditScore >= 60) surchargeBps = 100n;
+  if (creditScore >= 800) surchargeBps = 0n;
+  else if (creditScore >= 700) surchargeBps = 50n;
+  else if (creditScore >= 600) surchargeBps = 100n;
 
   return poolRateBps + surchargeBps;
 };

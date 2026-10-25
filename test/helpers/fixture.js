@@ -1,4 +1,5 @@
 import hre from "hardhat";
+import { loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers.js";
 import { deployProtocol } from "../../scripts/lib/protocol.js";
 import { registerMember, idHashOf, signAttestation } from "./identity.js";
 
@@ -25,10 +26,23 @@ export const LOOSE = {
   stakeAgeRequiredDays: 0,
 };
 
+const fixtures = new Map();
+
 /**
  * Deploys and wires the full protocol. Signers: [admin, attester, ...users].
+ * Each distinct parameter set is deployed once and then restored from an EVM snapshot.
  */
-export async function deployGigLend(overrides = {}) {
+export function deployGigLend(overrides = {}) {
+  const key = JSON.stringify(overrides, (_, v) => (typeof v === "bigint" ? v.toString() : v));
+  if (!fixtures.has(key)) {
+    const fixture = () => deployFresh(overrides);
+    Object.defineProperty(fixture, "name", { value: `gigLend_${fixtures.size}` });
+    fixtures.set(key, fixture);
+  }
+  return loadFixture(fixtures.get(key));
+}
+
+async function deployFresh(overrides) {
   const signers = await ethers.getSigners();
   const [admin, attester] = signers;
   const c = await deployProtocol(ethers, { admin, attester: attester.address, overrides });

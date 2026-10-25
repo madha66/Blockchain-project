@@ -108,7 +108,9 @@ export const useEventSync = (walletProvider) => {
   const seenEventKeys = useRef(new Set());
   const providerRef = useRef(null);
 
-  const processLog = useCallback(async (interfaces, log) => {
+  // `seen` is per sync run: StrictMode starts two runs and a shared set would let the
+  // cancelled run swallow every log of the live one.
+  const processLog = useCallback(async (interfaces, log, seen) => {
     try {
       const iface = interfaces[log.address.toLowerCase()];
       if (!iface) return null;
@@ -118,11 +120,11 @@ export const useEventSync = (walletProvider) => {
       const txHash = log.transactionHash;
       const logIndex = log.index ?? log.logIndex ?? 0;
       const key = `${txHash}-${logIndex}`;
-      if (seenEventKeys.current.has(key)) return null;
+      if (seen.has(key)) return null;
 
       const info = describe(parsed.name, parsed.args);
       if (!info) return null;
-      seenEventKeys.current.add(key);
+      seen.add(key);
 
       const block = await log.getBlock().catch(() => null);
       const timestamp = block?.timestamp
@@ -154,7 +156,8 @@ export const useEventSync = (walletProvider) => {
     let fallbackPollInterval = null;
 
     const setupSync = async () => {
-      seenEventKeys.current.clear();
+      const seen = new Set();
+      seenEventKeys.current = seen;
       setEvents([]);
 
       const { provider: syncProvider, mode } = getSyncProvider(walletProvider);
@@ -200,7 +203,7 @@ export const useEventSync = (walletProvider) => {
           const parsedList = [];
           for (const log of historicalLogs) {
             if (!log.removed) {
-              const item = await processLog(interfaces, log);
+              const item = await processLog(interfaces, log, seen);
               if (item) parsedList.push(item);
             }
           }
@@ -213,12 +216,12 @@ export const useEventSync = (walletProvider) => {
           if (!active) return;
           const key = `${log.transactionHash}-${log.index ?? log.logIndex ?? 0}`;
           if (log.removed) {
-            seenEventKeys.current.delete(key);
+            seen.delete(key);
             setEvents((prev) => prev.filter((e) => e.id !== key));
             setSyncTick((t) => t + 1);
             return;
           }
-          const parsed = await processLog(interfaces, log);
+          const parsed = await processLog(interfaces, log, seen);
           if (parsed) {
             setEvents((prev) => [parsed, ...prev.filter((e) => e.id !== parsed.id)]);
             setSyncTick((t) => t + 1);
@@ -240,7 +243,7 @@ export const useEventSync = (walletProvider) => {
               });
               let added = false;
               for (const log of recentLogs) {
-                const item = await processLog(interfaces, log);
+                const item = await processLog(interfaces, log, seen);
                 if (item) {
                   setEvents((prev) => [item, ...prev.filter((e) => e.id !== item.id)]);
                   added = true;

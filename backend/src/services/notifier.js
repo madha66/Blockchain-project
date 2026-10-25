@@ -58,8 +58,10 @@ const HELP_FIRST = {
     "Please talk to us: we can look at a payment plan with you. A hardship workout is available if things do not improve.",
   guarantor_alert:
     "You do not need to do anything yet. We are working with the borrower on a plan.",
+  defaulted_hardship:
+    "A hardship workout lets you repay in small installments with no interest, and finishing it restores part of your score. If you think the classification is wrong, you can appeal within 21 days.",
   defaulted:
-    "If this happened because you could not pay, a hardship workout lets you repay in small installments with no interest. You can also appeal the classification within 21 days.",
+    "If you think the classification is wrong, you can appeal within 21 days. Your Loans page shows a settlement amount that closes the balance today.",
   fast_climber:
     "You can keep borrowing at your current level. Larger amounts open up as more loans are repaid.",
   generic: "If you need help, reply from your Loans page and we will look at the options with you.",
@@ -87,6 +89,7 @@ const TITLES = {
   significant: "Your installment is still unpaid",
   guarantor_alert: "A loan you guarantee is overdue",
   defaulted: "Your loan has been marked as defaulted",
+  defaulted_hardship: "Your loan has been marked as defaulted",
   fast_climber: "You are held at your current borrowing step",
 };
 

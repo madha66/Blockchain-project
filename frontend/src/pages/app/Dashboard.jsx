@@ -91,7 +91,7 @@ const Dashboard = ({ wallet, contracts, eventSync }) => {
         <div className="dashboard-title-group">
           <h1>
             <span>Dashboard</span>
-            <span className="badge badge-gold" style={{ fontSize: '0.8rem', verticalAlign: 'middle' }}>v2.0</span>
+            <span className="badge badge-gold" style={{ fontSize: '0.8rem', verticalAlign: 'middle' }}>v3</span>
           </h1>
           <p className="dashboard-subtitle">
             Manage your decentralized micro-loans, staked liquidity, and credit reputation.
@@ -309,7 +309,7 @@ const Dashboard = ({ wallet, contracts, eventSync }) => {
               </div>
 
               <div className="pool-metric-row">
-                <span className="pool-metric-label">Insurance Reserve</span>
+                <span className="pool-metric-label">Reserve (loss buffer, not a guarantee)</span>
                 <span className="pool-metric-value" style={{ color: 'var(--brand-primary)' }}>
                   {insuranceReserve} ETH
                 </span>
@@ -360,7 +360,7 @@ const Dashboard = ({ wallet, contracts, eventSync }) => {
                 <div>
                   <div style={{ fontSize: '0.88rem', fontWeight: '600' }}>Smart Contracts Loaded</div>
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                    LendingPool, CreditScore & GLPToken active
+                    LoanManager, LendingPool, IdentityRegistry & CreditScore active
                   </div>
                 </div>
               </div>
@@ -392,7 +392,13 @@ const Dashboard = ({ wallet, contracts, eventSync }) => {
                 }}>
                   <HiCheckCircle size={24} style={{ color: 'var(--success)', flexShrink: 0 }} />
                   <div style={{ fontSize: '0.82rem', color: 'var(--success)' }}>
-                    <strong>Good Standing:</strong> Zero active debts. Full borrowing allowance is available.
+                    {borrower.claim && borrower.claim.amount > 0n ? (
+                      <><strong>Default balance open:</strong> {fmtEth(borrower.claim.amount)} ETH remains after a default. The Loans page shows your settlement amount{Number(borrower.claim.dtype) === 1 ? ' and workout plan' : ''}.</>
+                    ) : registered ? (
+                      <><strong>No open loan.</strong> Your borrowing options are on the Borrow page.</>
+                    ) : (
+                      <><strong>Not registered yet.</strong> Sign up and verify to borrow; lending is open to everyone.</>
+                    )}
                   </div>
                 </div>
               )}

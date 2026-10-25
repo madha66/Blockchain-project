@@ -102,6 +102,16 @@ describe("Default and recovery (Phase 5)", function () {
       expect(ev.defaultType).to.equal(DType.Strategic);
     });
 
+    it("payouts received before the first miss do not count as income that kept flowing", async function () {
+      const { loanId } = await seasonedUnsecured(bob);
+      const loan = await lm.getLoan(loanId);
+      await router.connect(keeper).payout(bob.address, { value: loan.installment * 3n }); // before due
+      await toDefaultDay(loanId); // nobody touches the loan until markDefault
+      const { ev, cls } = await markDefault(loanId);
+      expect(cls.incomeKeptFlowing).to.equal(false);
+      expect(ev.defaultType).to.equal(DType.Hardship);
+    });
+
     it("Hardship, not Strategic, when the borrower asked for help early", async function () {
       const { loanId } = await seasonedUnsecured(bob);
       await lm.connect(bob).requestRestructure(loanId, Option.PaymentHoliday);

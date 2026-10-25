@@ -80,7 +80,7 @@ export function createWatcher({ provider } = {}) {
       if (Number(last.status) === 3) {
         await enqueueNotice({
           userId: user.id,
-          kind: "defaulted",
+          kind: Number(last.dtype) === 1 ? "defaulted_hardship" : "defaulted",
           dedupeKey: `loan-${last.id}-defaulted`,
           facts: `Loan #${last.id} was marked as defaulted and classified as ${["", "hardship", "strategic", "fraud"][Number(last.dtype)]}. You can see the remaining balance and a settlement quote on your Loans page.`,
         });

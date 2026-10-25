@@ -84,7 +84,6 @@ export const PARAMS = [
   ["incomeDropBps", 8000n, 1000n, 10000n],
   ["maxRestructuresPer12m", 2n, 0n, 4n],
   ["restructureWindowDays", 365n, 30n, 730n],
-  ["restructureScoreBps", 6000n, 0n, 10000n],
 
   // ── Systemic shock mode ───────────────────────────────────────────────
   ["shockExtraGraceDays", 7n, 0n, 30n],

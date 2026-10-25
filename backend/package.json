@@ -4,9 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --watch src/server.js",
-    "start": "node src/server.js",
+    "dev": "prisma db push --skip-generate && node --watch src/server.js",
+    "start": "prisma db push --skip-generate && node src/server.js",
     "db:push": "prisma db push",
+    "db:reset": "prisma db push --force-reset --skip-generate",
+    "seed:demo": "node scripts/seedDemo.js",
+    "postinstall": "prisma generate",
     "test": "vitest run"
   },
   "dependencies": {

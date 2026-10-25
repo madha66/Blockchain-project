@@ -64,32 +64,58 @@ export async function seedUser({
   const digits = String(BigInt(wallet.address) % 10n ** 9n).padStart(9, "0");
 
   const account = { name, email: `${tag}@demo.giglend.test`, phone: `9${digits}`, password: "demo-password-1" };
-  const created = await call("/signup/account", { method: "POST", body: account });
-  // The real OTP went to the server console; issue a fresh one we can read here.
-  const code = await issueOtp(created.userId, "signup");
-  await call("/signup/otp/verify", { method: "POST", body: { code } });
-  await siwe(call, wallet, "/signup/wallet");
 
-  const form = new FormData();
-  form.append("pan", pan);
-  form.append("aadhaarRef", "4321");
-  form.append("selfie", new Blob([Buffer.from("demo-selfie")], { type: "image/jpeg" }), "selfie.jpg");
-  const kyc = await call("/signup/kyc", { method: "POST", form });
+  // Create the account, or log back in and resume the wizard where it stopped.
+  let step = 1;
+  let userId;
+  try {
+    userId = (await call("/signup/account", { method: "POST", body: account })).userId;
+  } catch (err) {
+    if (!String(err.message).includes("ACCOUNT_EXISTS")) throw err;
+    const login = await call("/auth/login", { method: "POST", body: { identifier: account.email, password: account.password } });
+    if (login.next === "siwe") await siwe(call, wallet, "/auth/siwe/verify");
+    const me = await call("/auth/me");
+    userId = me.user.id;
+    step = me.user.signupStep;
+  }
 
-  await call("/signup/income", {
-    method: "POST",
-    body: { platform: "Swiggy", workerId: `SW-${tag}`, monthsActive: 18, payoutFrequency, monthlyPayouts, declaredDebts },
-  });
-  const done = await call("/signup/consent", { method: "POST", body: { dataUse: true, autopay: true, peerVisibility: false } });
+  if (step <= 1) {
+    // The real OTP went to the server console; issue a fresh one we can read here.
+    const code = await issueOtp(userId, "signup");
+    await call("/signup/otp/verify", { method: "POST", body: { code } });
+  }
+  if (step <= 2) await siwe(call, wallet, "/signup/wallet");
+
+  let kyc = { inherited: false };
+  if (step <= 3) {
+    const form = new FormData();
+    form.append("pan", pan);
+    form.append("aadhaarRef", "4321");
+    form.append("selfie", new Blob([Buffer.from("demo-selfie")], { type: "image/jpeg" }), "selfie.jpg");
+    kyc = await call("/signup/kyc", { method: "POST", form });
+  }
+  if (step <= 4) {
+    await call("/signup/income", {
+      method: "POST",
+      body: { platform: "Swiggy", workerId: `SW-${tag}`, monthsActive: 18, payoutFrequency, monthlyPayouts, declaredDebts },
+    });
+  }
+  const done =
+    step <= 5
+      ? await call("/signup/consent", { method: "POST", body: { dataUse: true, autopay: true, peerVisibility: false } })
+      : { attestation: await call("/profile/attestation", { method: "POST" }) };
 
   let memberId = 0n;
   if (register) {
     const registry = new ethers.Contract(config.addresses.IdentityRegistry, REGISTRY_ABI, wallet);
-    const { attestation, signature } = done.attestation;
-    await (await registry.register(attestation, signature)).wait();
     memberId = await registry.memberOf(wallet.address);
+    if (memberId === 0n) {
+      const { attestation, signature } = done.attestation;
+      await (await registry.register(attestation, signature)).wait();
+      memberId = await registry.memberOf(wallet.address);
+    }
   }
-  return { account, wallet: wallet.address, inherited: kyc.inherited, memberId, userId: created.userId };
+  return { account, wallet: wallet.address, inherited: kyc.inherited, memberId, userId };
 }
 
 if (process.argv[1]?.endsWith("seedUser.js")) {

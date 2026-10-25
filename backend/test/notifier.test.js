@@ -70,7 +70,7 @@ describe("Notifier contact rules", () => {
 
   it("every message carries the member's named contact and the grievance line", async () => {
     const { user, contactName } = await makeMember();
-    for (const kind of ["payouts_falling", "sweep_shortfall", "wallet_dry", "reminder", "onset", "significant", "defaulted"]) {
+    for (const kind of ["payouts_falling", "sweep_shortfall", "wallet_dry", "reminder", "onset", "significant", "defaulted", "defaulted_hardship"]) {
       const n = await enqueueNotice({ userId: user.id, kind, facts: "Amount and date.", now: ist(12), dedupeKey: `t-${kind}` });
       expect(n.contactName).toBe(contactName);
       expect(n.body).toContain(contactName);

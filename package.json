@@ -1,10 +1,13 @@
 {
   "name": "project_1_dec",
   "version": "1.0.0",
-  "description": "",
+  "description": "GigLend: community lending for gig workers (Hardhat contracts)",
   "main": "index.js",
   "scripts": {
     "test": "hardhat test",
+    "node": "hardhat node",
+    "deploy:local": "hardhat run scripts/deploy.js --network localhost",
+    "demo:scenarios": "node scripts/demoScenarios.js",
     "time-travel": "node scripts/timeTravel.js",
     "status": "node scripts/timeTravel.js status"
   },

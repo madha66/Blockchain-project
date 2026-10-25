@@ -6,308 +6,211 @@ import path from "path";
 // CONFIGURATION & CONTRACT RESOLUTION
 // ─────────────────────────────────────────────────────────────────────────────
 const RPC_URL = process.env.RPC_URL || "http://127.0.0.1:8545";
-const CONTRACT_HELPERS_PATH = path.resolve("frontend/src/utils/contractHelpers.js");
-const ADDRESSES_PATH = path.resolve("frontend/src/contracts/addresses.json");
-const LENDING_POOL_ARTIFACT_PATH = path.resolve("frontend/src/contracts/LendingPool.json");
+const CONTRACTS_DIR = path.resolve("frontend/src/contracts");
+const ADDRESSES_PATH = path.join(CONTRACTS_DIR, "addresses.json");
+
+export const STAGES = ["Active", "Grace", "Onset", "Significant", "DefaultEligible"];
+export const STATUS = ["None", "Active", "Repaid", "Defaulted", "Exited"];
+export const DTYPES = ["None", "Hardship", "Strategic", "Fraud"];
 
 /**
- * Dynamically resolves deployed contract addresses from contractHelpers.js
+ * Deployed addresses written by scripts/deploy.js (frontend/src/contracts/addresses.json).
+ * The lowercase keys keep the V2 shape for older callers.
  */
 export function getDeployedAddresses() {
-  try {
-    if (fs.existsSync(ADDRESSES_PATH)) {
-      const a = JSON.parse(fs.readFileSync(ADDRESSES_PATH, "utf8"));
-      if (a.LendingPool) {
-        return { ...a, lendingPool: a.LendingPool, creditScore: a.CreditScore, glpToken: a.GLPToken };
-      }
-    }
-    if (fs.existsSync(CONTRACT_HELPERS_PATH)) {
-      const content = fs.readFileSync(CONTRACT_HELPERS_PATH, "utf8");
-      const lpMatch = content.match(/LendingPool:\s*(?:import\.meta\.env\.\w+\s*\|\|\s*)?['"](0x[a-fA-F0-9]{40})['"]/);
-      const csMatch = content.match(/CreditScore:\s*(?:import\.meta\.env\.\w+\s*\|\|\s*)?['"](0x[a-fA-F0-9]{40})['"]/);
-      const glpMatch = content.match(/GLPToken:\s*(?:import\.meta\.env\.\w+\s*\|\|\s*)?['"](0x[a-fA-F0-9]{40})['"]/);
-
-      if (lpMatch) {
-        return {
-          lendingPool: lpMatch[1],
-          creditScore: csMatch ? csMatch[1] : null,
-          glpToken: glpMatch ? glpMatch[1] : null,
-        };
-      }
-    }
-  } catch (err) {
-    // fallback
+  if (!fs.existsSync(ADDRESSES_PATH)) {
+    throw new Error("frontend/src/contracts/addresses.json not found. Run scripts/deploy.js first.");
   }
-
-  // Fallback defaults for local Hardhat node deployment
-  return {
-    lendingPool: "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
-    creditScore: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
-    glpToken: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-  };
+  const a = JSON.parse(fs.readFileSync(ADDRESSES_PATH, "utf8"));
+  return { ...a, lendingPool: a.LendingPool, creditScore: a.CreditScore, glpToken: a.GLPToken };
 }
 
-/**
- * Resolves the LendingPool ABI from frontend artifacts
- */
-export function getLendingPoolAbi() {
-  if (fs.existsSync(LENDING_POOL_ARTIFACT_PATH)) {
-    const json = JSON.parse(fs.readFileSync(LENDING_POOL_ARTIFACT_PATH, "utf8"));
-    return json.abi;
-  }
-  return [
-    "function loans(address) view returns (uint256 principal, uint256 originationTime, uint256 dueDate, uint256 lastAccrualTime, uint256 accruedInterest, uint256 interestRateBps, uint256 tenureDays)",
-    "function GRACE_PERIOD_DAYS() view returns (uint256)",
-    "function secondsPerDay() view returns (uint256)",
-    "function isDefaulter(address) view returns (bool)",
-    "function markDefault(address borrower) external",
-    "event DefaultSettled(address indexed borrower, uint256 sharesBurned, uint256 principalExtinguished, uint256 reserveCovered, uint256 writtenOffPrincipal, uint256 writtenOffInterest)"
-  ];
+export function contract(name, runner) {
+  const addresses = getDeployedAddresses();
+  const { abi } = JSON.parse(fs.readFileSync(path.join(CONTRACTS_DIR, `${name}.json`), "utf8"));
+  return new ethers.Contract(addresses[name], abi, runner);
 }
+
+const fmt = (wei) => `${Number(ethers.formatEther(wei)).toFixed(4)} ETH`;
+const when = (ts) => new Date(Number(ts) * 1000).toLocaleString();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CORE EXPORTED FUNCTIONS FOR REVIEW / DEMO
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Advances the blockchain timestamp by a given number of days.
- * @param {number} days Number of days to fast-forward (default: 11 days).
- * @param {string} rpcUrl JSON-RPC endpoint.
- * @returns {Promise<{ previousTimestamp: number, newTimestamp: number, secondsAdded: number }>}
+ * Advances chain time by `days` policy days (PolicyConfig.secondsPerDay, so compressed
+ * demo time works too).
  */
 export async function advanceBlockchainTime(days = 11, rpcUrl = RPC_URL) {
   const provider = new ethers.JsonRpcProvider(rpcUrl);
-  const blockBefore = await provider.getBlock("latest");
-  const previousTimestamp = blockBefore.timestamp;
-  const secondsToAdd = Math.floor(days * 86400);
-
-  console.log("\n============================================================");
-  console.log(`⏱️  TIME TRAVEL INITIATED: Advancing ${days} Days (${secondsToAdd.toLocaleString()} seconds)`);
-  console.log("============================================================");
-  console.log(`Current Block: #${blockBefore.number}`);
-  console.log(`Previous Time: ${new Date(previousTimestamp * 1000).toLocaleString()} (Unix: ${previousTimestamp})`);
-
-  // Hardhat EVM RPC calls
-  await provider.send("evm_increaseTime", [secondsToAdd]);
+  let spd = 86400;
+  try {
+    spd = Number(await contract("PolicyConfig", provider).secondsPerDay());
+  } catch {
+    // not deployed yet: plain days
+  }
+  const before = await provider.getBlock("latest");
+  const seconds = Math.floor(days * spd);
+  await provider.send("evm_increaseTime", [seconds]);
   await provider.send("evm_mine", []);
+  const after = await provider.getBlock("latest");
 
-  const blockAfter = await provider.getBlock("latest");
-  const newTimestamp = blockAfter.timestamp;
-
-  console.log(`\n✅ Time Travel Successful!`);
-  console.log(`New Block:     #${blockAfter.number}`);
-  console.log(`New Time:      ${new Date(newTimestamp * 1000).toLocaleString()} (Unix: ${newTimestamp})`);
-  console.log(`Delta:         +${((newTimestamp - previousTimestamp) / 86400).toFixed(2)} days\n`);
-
-  return {
-    previousTimestamp,
-    newTimestamp,
-    secondsAdded: newTimestamp - previousTimestamp,
-  };
+  console.log(`\n⏱️  Advanced ${days} day(s) (${seconds.toLocaleString()} s, secondsPerDay=${spd})`);
+  console.log(`   ${when(before.timestamp)}  →  ${when(after.timestamp)}  (block #${after.number})\n`);
+  return { previousTimestamp: before.timestamp, newTimestamp: after.timestamp, secondsAdded: after.timestamp - before.timestamp };
 }
 
 /**
- * Checks on-chain loan status for a borrower address.
- * @param {string} borrowerAddress Address of the borrower.
- * @param {string} rpcUrl JSON-RPC endpoint.
+ * Prints one loan (by id) or a borrower's open/latest loan (by address).
  */
-export async function checkLoanStatus(borrowerAddress, rpcUrl = RPC_URL) {
+export async function checkLoanStatus(target, rpcUrl = RPC_URL) {
   const provider = new ethers.JsonRpcProvider(rpcUrl);
-  const addresses = getDeployedAddresses();
-  const poolAbi = getLendingPoolAbi();
-  const pool = new ethers.Contract(addresses.lendingPool, poolAbi, provider);
+  const lm = contract("LoanManager", provider);
+  const registry = contract("IdentityRegistry", provider);
 
-  const block = await provider.getBlock("latest");
-  const now = block.timestamp;
-
-  const loan = await pool.loans(borrowerAddress);
-  const isDef = await pool.isDefaulter(borrowerAddress);
-
-  const principal = loan.principal;
-  const dueDate = Number(loan.dueDate);
-  const tenureDays = Number(loan.tenureDays);
-  const rateBps = Number(loan.interestRateBps);
-
-  console.log(`------------------------------------------------------------`);
-  console.log(`📋 Loan Status for Borrower: ${borrowerAddress}`);
-  console.log(`------------------------------------------------------------`);
-  console.log(`Defaulter Status:    ${isDef ? "🔴 YES (Marked in Default)" : "🟢 No (Good Standing)"}`);
-  console.log(`Active Principal:    ${ethers.formatEther(principal)} ETH`);
-
-  if (principal === 0n) {
-    console.log(`No active unpaid loan found for this borrower.`);
-    return { isActive: false, isDefaulter: isDef, canLiquidate: false };
+  let loanId;
+  if (ethers.isAddress(target)) {
+    const memberId = await registry.memberOf(target);
+    if (memberId === 0n) {
+      console.log(`${target} is not a registered member.`);
+      return { isActive: false };
+    }
+    loanId = await lm.openLoanOf(memberId);
+    if (loanId === 0n) {
+      const ids = await lm.loansOfMember(memberId);
+      if (ids.length === 0) {
+        console.log(`Member #${memberId} has no loans.`);
+        return { isActive: false };
+      }
+      loanId = ids[ids.length - 1];
+    }
+  } else {
+    loanId = BigInt(target);
   }
 
-  const gracePeriodDays = 3; // Standard V2 grace period
-  const gracePeriodEnd = dueDate + (gracePeriodDays * 86400);
-  const isOverdue = now > dueDate;
-  const pastGracePeriod = now > gracePeriodEnd;
-
-  console.log(`Interest Rate (APR): ${(rateBps / 100).toFixed(2)}%`);
-  console.log(`Tenure Duration:     ${tenureDays} days`);
-  console.log(`Due Date:            ${new Date(dueDate * 1000).toLocaleString()}`);
-  console.log(`Grace Period Ends:   ${new Date(gracePeriodEnd * 1000).toLocaleString()}`);
-  console.log(`Current Block Time:  ${new Date(now * 1000).toLocaleString()}`);
-  console.log(`Is Overdue:          ${isOverdue ? "⚠️ YES" : "✅ No"}`);
-  console.log(`Past Grace Period:   ${pastGracePeriod ? "🚨 YES (ELIGIBLE FOR DEFAULT LIQUIDATION)" : "⏳ In Grace Period"}`);
-
-  return {
-    isActive: true,
-    principal: ethers.formatEther(principal),
-    isOverdue,
-    pastGracePeriod,
-    canLiquidate: pastGracePeriod && !isDef,
-    isDefaulter: isDef,
-  };
+  const l = await lm.getLoan(loanId);
+  const active = Number(l.status) === 1;
+  const stage = active ? STAGES[Number(await lm.stageOf(loanId))] : null;
+  console.log("------------------------------------------------------------");
+  console.log(`📋 Loan #${loanId} · member #${l.memberId} · ${l.borrower}`);
+  console.log(`   Kind:        ${Number(l.kind) === 0 ? "Builder (escrowed)" : "Unsecured"}`);
+  console.log(`   Status:      ${STATUS[Number(l.status)]}${Number(l.status) === 3 ? ` · ${DTYPES[Number(l.dtype)]}` : ""}`);
+  console.log(`   Outstanding: ${fmt(l.outstandingPrincipal)} of ${fmt(l.principal)} · ${l.paidCount}/${l.nInstallments} paid`);
+  if (active) {
+    console.log(`   Next due:    ${when(l.nextDueDate)}`);
+    console.log(`   Stage:       ${stage}`);
+    console.log(`   Due now:     ${fmt(await lm.amountDue(loanId))}`);
+  }
+  console.log("------------------------------------------------------------");
+  return { isActive: active, loanId, stage, canDefault: stage === "DefaultEligible", canCollect: stage === "Significant" };
 }
 
-/**
- * Liquidates an overdue loan past grace period by calling markDefault.
- * @param {string} borrowerAddress Address of the borrower to liquidate.
- * @param {string} rpcUrl JSON-RPC endpoint.
- */
-export async function liquidateDefault(borrowerAddress, rpcUrl = RPC_URL) {
+async function keeper(rpcUrl) {
   const provider = new ethers.JsonRpcProvider(rpcUrl);
-  // Account #1 (deployer / liquidator)
-  const signer = await provider.getSigner(0);
-  const addresses = getDeployedAddresses();
-  const poolAbi = getLendingPoolAbi();
-  const pool = new ethers.Contract(addresses.lendingPool, poolAbi, signer);
+  return provider.getSigner(Number(process.env.KEEPER_INDEX || 6)); // Hardhat account #6 by default
+}
 
-  console.log(`\n============================================================`);
-  console.log(`⚡ EXECUTING ON-CHAIN DEFAULT LIQUIDATION`);
-  console.log(`============================================================`);
-  console.log(`Liquidator Signer: ${await signer.getAddress()}`);
-  console.log(`Target Borrower:   ${borrowerAddress}`);
-  console.log(`Pool Contract:     ${addresses.lendingPool}`);
+/** Applies locked stake to a Significant-stage installment (pays the keeper a bounty). */
+export async function collectLoan(loanId, rpcUrl = RPC_URL) {
+  const lm = contract("LoanManager", await keeper(rpcUrl));
+  const receipt = await (await lm.collect(loanId)).wait();
+  console.log(`✅ collect(${loanId}) mined in block #${receipt.blockNumber}`);
+  return receipt;
+}
 
+/** Marks a DefaultEligible loan as defaulted and prints the waterfall. */
+export async function liquidateDefault(loanId, rpcUrl = RPC_URL) {
+  const signer = await keeper(rpcUrl);
+  const lm = contract("LoanManager", signer);
+  const dm = contract("DefaultManager", signer);
   try {
-    const tx = await pool.markDefault(borrowerAddress);
-    console.log(`Transaction sent:  ${tx.hash}`);
-    const receipt = await tx.wait();
-    console.log(`✅ Mined in Block: #${receipt.blockNumber}`);
-
-    // Parse DefaultSettled event
-    const iface = new ethers.Interface(poolAbi);
+    const receipt = await (await lm.markDefault(loanId)).wait();
     for (const log of receipt.logs) {
+      let parsed;
       try {
-        const parsed = iface.parseLog(log);
-        if (parsed && parsed.name === "DefaultSettled") {
-          console.log("\n------------------------------------------------------------");
-          console.log("🎉 DEFAULT SETTLED (Approach A Waterfall Breakdown):");
-          console.log("------------------------------------------------------------");
-          console.log(`• Borrower:               ${parsed.args[0]}`);
-          console.log(`• GLP Shares Burned:      ${ethers.formatEther(parsed.args[1])} GLP (Stage 1 Set-Off)`);
-          console.log(`• Principal Extinguished: ${ethers.formatEther(parsed.args[2])} ETH`);
-          console.log(`• Insurance Reserve Used: ${ethers.formatEther(parsed.args[3])} ETH (Stage 2)`);
-          console.log(`• Socialized Loss:        ${ethers.formatEther(parsed.args[4])} ETH (Stage 3)`);
-          console.log(`• Accrued Interest W/O:   ${ethers.formatEther(parsed.args[5])} ETH`);
-          console.log("------------------------------------------------------------\n");
-          return { success: true, receipt, event: parsed.args };
-        }
-      } catch (e) {
-        // Not a pool log
+        parsed = dm.interface.parseLog(log);
+      } catch {
+        continue;
+      }
+      if (parsed?.name === "LoanDefaulted") {
+        const a = parsed.args;
+        console.log(`\n🔻 Loan #${a.loanId} defaulted · classified ${DTYPES[Number(a.defaultType)]}`);
+        console.log(`   1. Borrower stake:  ${fmt(a.stakeUsed)}`);
+        console.log(`   2. Guarantor stake: ${fmt(a.guarantorUsed)}`);
+        console.log(`   3. Reserve:         ${fmt(a.reserveUsed)}`);
+        console.log(`   4. Lender loss:     ${fmt(a.lenderLoss)}\n`);
       }
     }
-
     return { success: true, receipt };
   } catch (error) {
-    console.error(`\n❌ markDefault failed:`, error.message || error);
+    console.error(`❌ markDefault(${loanId}) failed: ${error.shortMessage || error.message}`);
     return { success: false, error };
   }
 }
 
 /**
- * Combined function: Advances time AND immediately executes default liquidation.
- * Perfect for one-click reviewer/panelist demonstrations!
- * @param {number} days Days to fast forward (default: 11).
- * @param {string} borrowerAddress Target borrower address (optional, auto-detects if omitted).
+ * Advances time, then marks every DefaultEligible open loan as defaulted (or just the
+ * given borrower's loan).
  */
-export async function timeTravelAndLiquidate(days = 11, borrowerAddress = null) {
-  // 1. Advance Time
+export async function timeTravelAndLiquidate(days = 31, borrower = null) {
   await advanceBlockchainTime(days);
-
   const provider = new ethers.JsonRpcProvider(RPC_URL);
-
-  // 2. Identify Target Borrower
-  let target = borrowerAddress;
-  if (!target) {
-    // Check known test accounts
-    const testAccounts = [
-      "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", // Account A
-      "0x70997970C51812dc3A010C7d01b50e0d17dc79C8", // Account B
-    ];
-
-    for (const acc of testAccounts) {
-      const status = await checkLoanStatus(acc);
-      if (status.isActive && status.pastGracePeriod) {
-        target = acc;
-        break;
-      }
+  const lm = contract("LoanManager", provider);
+  const ids = borrower ? [(await checkLoanStatus(borrower)).loanId].filter(Boolean) : [...(await lm.activeLoanIds())];
+  let defaulted = 0;
+  for (const id of ids) {
+    const status = await checkLoanStatus(id.toString());
+    if (status.canDefault) {
+      await liquidateDefault(id);
+      defaulted += 1;
     }
-  } else {
-    await checkLoanStatus(target);
   }
-
-  // 3. Liquidate if an eligible borrower exists
-  if (target) {
-    console.log(`\nLiquidating identified overdue borrower: ${target}`);
-    await liquidateDefault(target);
-  } else {
-    console.log("\nℹ️  No overdue borrower past grace period was found to liquidate.");
-    console.log("Tip: If you want to test liquidation, create a loan in the browser first, then re-run this script!");
-  }
+  if (defaulted === 0) console.log("ℹ️  No loan is past its default day yet.");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CLI ENTRYPOINT
 // ─────────────────────────────────────────────────────────────────────────────
 async function main() {
-  const args = process.argv.slice(2);
-  const command = args[0] ? args[0].toLowerCase() : "auto";
+  const [cmd = "auto", a1] = process.argv.slice(2);
 
-  if (command === "help" || command === "--help" || command === "-h") {
-    console.log(`
-GigLend V2 — Time Travel & Default Liquidation Panel Demo Tool
-=============================================================
+  switch (cmd.toLowerCase()) {
+    case "help":
+    case "--help":
+    case "-h":
+      console.log(`
+GigLend — time travel and keeper tool (local Hardhat chain)
 Usage:
-  node scripts/timeTravel.js [days] [borrowerAddress]
-
-Examples:
-  node scripts/timeTravel.js                  # Advances 11 days & auto-liquidates overdue loan
-  node scripts/timeTravel.js 11               # Advances 11 days & auto-liquidates
-  node scripts/timeTravel.js 14 0x7099...79C8 # Advances 14 days & liquidates Account B
-  node scripts/timeTravel.js status 0xf39F... # Checks loan status for a borrower without advancing time
+  node scripts/timeTravel.js [days] [borrower]   advance (default 31 days), then markDefault eligible loans
+  node scripts/timeTravel.js advance <days>      only advance time
+  node scripts/timeTravel.js status <loanId|address>
+  node scripts/timeTravel.js collect <loanId>    apply stake in the Significant stage
+  node scripts/timeTravel.js default <loanId>    markDefault from the default day
+Days are policy days (PolicyConfig.secondsPerDay).
 `);
-    return;
+      return;
+    case "advance":
+      await advanceBlockchainTime(Number(a1 || 1));
+      return;
+    case "status":
+      await checkLoanStatus(a1 || "1");
+      return;
+    case "collect":
+      await collectLoan(BigInt(a1));
+      return;
+    case "default":
+      await liquidateDefault(BigInt(a1));
+      return;
+    default: {
+      const days = !isNaN(Number(cmd)) ? Number(cmd) : 31;
+      const borrower = ethers.isAddress(a1 || "") ? a1 : ethers.isAddress(cmd) ? cmd : null;
+      await timeTravelAndLiquidate(days, borrower);
+    }
   }
-
-  if (command === "status") {
-    const target = args[1] || "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
-    await checkLoanStatus(target);
-    return;
-  }
-
-  // Parse days argument
-  let days = 11;
-  let targetBorrower = null;
-
-  if (args[0] && !isNaN(Number(args[0]))) {
-    days = Number(args[0]);
-  }
-
-  if (args[1] && ethers.isAddress(args[1])) {
-    targetBorrower = args[1];
-  } else if (args[0] && ethers.isAddress(args[0])) {
-    targetBorrower = args[0];
-  }
-
-  await timeTravelAndLiquidate(days, targetBorrower);
 }
 
-// Run if called directly via CLI
-if (process.argv[1] && (process.argv[1].endsWith("timeTravel.js") || process.argv[1].endsWith("timeTravel"))) {
+if (process.argv[1] && /timeTravel(\.js)?$/.test(process.argv[1])) {
   main().catch((err) => {
     console.error(err);
     process.exitCode = 1;

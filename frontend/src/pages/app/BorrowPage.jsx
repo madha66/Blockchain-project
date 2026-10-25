@@ -309,10 +309,10 @@ const BorrowPage = ({ wallet, contracts, eventSync }) => {
             {quote ? (
               <>
                 <LimitRow label="Annual rate (APR, fixed)" value={`${(Number(quote.rateBps) / 100).toFixed(2)}%`} />
-                <LimitRow label="Installment" value={`${ethWithInr(quote.installment)} × ${n}`} />
-                <LimitRow label="Total interest" value={ethWithInr(quote.totalInterest)} />
-                <LimitRow label="Total you repay" value={ethWithInr(amountWei + quote.totalInterest)} />
-                <LimitRow label="Late fee" value={ethWithInr(lateFee)} note={`Once per overdue installment from day ${Number(grace) + 1}, never compounding`} />
+                <LimitRow label="Installment" value={`${ethWithInr(quote.installment, 6)} × ${n}`} />
+                <LimitRow label="Total interest" value={ethWithInr(quote.totalInterest, 6)} />
+                <LimitRow label="Total you repay" value={ethWithInr(amountWei + quote.totalInterest, 6)} />
+                <LimitRow label="Late fee" value={ethWithInr(lateFee, 6)} note={`Once per overdue installment from day ${Number(grace) + 1}, never compounding`} />
                 <LimitRow label="Grace period" value={`${grace} days, no fee`} />
                 <LimitRow label="Penalty-free exit" value={`${params?.penaltyFreeExitDays ?? 1n} day`} note="Return the principal with no interest or fees" />
                 <LimitRow label="Help available" value="Payment holiday or tenure stretch" note={`One per loan; holiday fee ${fmtEth(params?.holidayFeeWei ?? 0n)} ETH`} />

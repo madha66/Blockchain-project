@@ -11,6 +11,14 @@ export const useWallet = () => {
       const p = new ethers.BrowserProvider(window.ethereum);
       setProvider(p);
 
+      // Restore an already-authorised account after a reload (eth_accounts never prompts).
+      window.ethereum
+        .request({ method: 'eth_accounts' })
+        .then((accounts) => {
+          if (accounts && accounts.length > 0) setAccount(accounts[0]);
+        })
+        .catch(() => {});
+
       window.ethereum.on('accountsChanged', (accounts) => {
         if (accounts.length > 0) {
           setAccount(accounts[0]);

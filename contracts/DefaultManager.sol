@@ -158,9 +158,10 @@ contract DefaultManager is AccessControl, ReentrancyGuard {
     }
 
     function _markDefault(uint256 loanId, address caller) internal {
-        LoanTypes.Loan memory l = loanManager.getLoan(loanId);
-        require(l.status == LoanTypes.LoanStatus.Active, "No active loan");
+        require(loanManager.getLoan(loanId).status == LoanTypes.LoanStatus.Active, "No active loan");
+        // Materialise late state first so classification sees the real firstMissedAt.
         loanManager.accrueLate(loanId);
+        LoanTypes.Loan memory l = loanManager.getLoan(loanId);
         require(loanManager.stageOf(loanId) == LoanTypes.Stage.DefaultEligible, "Default day not reached");
         require(l.restructureEndsAt <= block.timestamp, "Restructure in force");
 

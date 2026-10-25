@@ -1,304 +1,328 @@
-# GigLend V2 — Decentralized Micro-Lending Protocol
+# GigLend V3: community lending for gig workers
 
-> A Decentralized Blockchain-Based Micro-Lending Protocol for Gig Economy Workers  
-> **Team:** Poovannaraajan (23BCE0759) · Madhan Kumar (23BCB0065) · Sanjay Jaishankar (23BCB0078)
+GigLend is a testnet prototype of a lending pool for gig workers. Lenders deposit ETH for GLP
+shares; verified members borrow in small installment loans that follow their payout cycle.
+V3 adds **signup and login with a verified identity** (one real person, one record) and the
+**default-handling policy** in [`docs/Defaulter_handling.pdf`](docs/Defaulter_handling.pdf):
+prevent, detect early, cure cheaply, recover only from locked value, book losses in steps,
+and treat each default by type with an appeal.
+
+> This is a testnet prototype. Rupee amounts and Indian rules are design benchmarks, not
+> compliance targets. KYC, OTP, income and payout data all come from **mock** providers.
+> Returns are never guaranteed, and the reserve is a loss buffer, not a guarantee.
+
+Design and decisions: [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) ·
+deviations, parameter values and limitations: [`docs/IMPLEMENTATION_NOTES.md`](docs/IMPLEMENTATION_NOTES.md).
 
 ---
 
-## 📖 Protocol Overview
+## Architecture
 
-GigLend V2 is a decentralized community micro-lending protocol designed for gig economy workers. The protocol connects liquidity providers (lenders) with gig workers seeking short-term uncollateralized financing. Instead of relying on traditional financial intermediaries or asset-backed collateral, borrowing limits and interest rates are dynamically determined by on-chain credit scores and protocol capital utilization.
-
----
-
-## 🏗 Architecture & Module Responsibilities
-
-The protocol consists of modular smart contracts, shared mathematical libraries, and a reactive frontend client.
-
-```mermaid
-graph TD
-    subgraph Smart Contracts
-        LP[LendingPool.sol] -->|Mints / Burns GLP| GLP[GLPToken.sol]
-        LP -->|Queries Score & Updates Stats| CS[CreditScore.sol]
-        LP -->|Computes Rates & Accrual| IL[InterestLib.sol]
-    end
-
-    subgraph Client Architecture
-        Sync[useEventSync.js] -->|Polls / WS Filter| LP
-        UI[React / Vite Pages] -->|Reactivity via syncTick| Sync
-        ClientA[Client A Browser] <-->|Cross-Client Sync| ClientB[Client B Browser]
-    end
+```
+frontend/ (React + Vite + ethers v6)
+   │  REST + httpOnly JWT cookie (/api proxied)    │  ethers (MetaMask or the dev wallet)
+   ▼                                               ▼
+backend/ (Express + Prisma/SQLite)                 contracts/ (Solidity 0.8.20, viaIR + optimizer)
+ • signup wizard, mock OTP, SIWE login             • PolicyConfig      every policy number, bounded setters
+ • mock KYC → idHash, encrypted selfie             • IdentityRegistry  members, EIP-712 attestations, tiers,
+ • income assessment, declared EMIs                                    clusters, cohorts, shock mode, cooling-off
+ • consent log (timestamped)                       • LoanManager       installment loans, Builder escrow, stake
+ • EIP-712 attester                                                    locks, SafeRepay pulls, income sweep, stages,
+ • chain watcher → early-warning signals                               late fee, collect, restructure (+ LoanOpsLib)
+ • notifier: 08:00–19:00, named contact,           • RiskEngine        pricing + every prevention rule (quote)
+   grievance line, inbox                           • DefaultManager    classification, 4-step waterfall, claims,
+ • admin + demo endpoints                                              settlement, workout, appeal, scar
+                                                   • LendingPool       deposits, provisioned poolValue(), FIFO
+                                                                       withdrawal queue, fair-price stake burn
+                                                   • GLPToken          shares; locked balance cannot move
+                                                   • CreditScore       300–900 by memberId, scars with 30% floor
+                                                   • ReserveFund       ring-fenced loss buffer
+                                                   • SafeRepayVault    prefunded autopay with borrower limits
+                                                   • MockPayoutRouter  mock gig payouts, inflow history
+                                                   • PortfolioLens     Pool-page disclosures
 ```
 
-### Module Responsibilities
+- Contracts reference each other through addresses set once at deploy
+  ([`scripts/lib/protocol.js`](scripts/lib/protocol.js) is the single source of wiring and roles).
+- Roles use OpenZeppelin `AccessControl`: `ADMIN_ROLE`, `ATTESTER_ROLE`, `DISPUTE_ROLE`, plus
+  internal `LOAN_ROLE` / `POOL_ROLE` / `LOCKER_ROLE` / `DEFAULT_ROLE` / `ROUTER_ROLE`. Locally the
+  deployer holds the admin roles. **In production `ADMIN_ROLE` and `DISPUTE_ROLE` belong behind a
+  Safe multisig.**
+- Only `LoanManager` and `DefaultManager` move pool cash for loans, call `CreditScore`, or draw
+  on `ReserveFund`.
+- No personal data goes on-chain. The chain holds hashes, tiers, flags, cluster/cohort IDs and
+  timestamps only.
 
-1. **`LendingPool.sol` (Core Orchestrator)**:
-   - Manages pool liquidity, lender deposits, and share redemption.
-   - Enforces the **$10^6$ wei virtual-offset accounting** to neutralize ERC-4626 first-depositor share inflation attacks.
-   - Originates loans with configurable tenures (7 to 90 days) and locks origination interest rates.
-   - Enforces a strict **90% maximum capital utilization cap**.
-   - Executes interest-first repayment waterfalls and collects a **10% insurance reserve cut** from all repaid interest.
-   - Executes three-stage default settlements (**Approach A: Impairment Isolation**).
-   - Manages post-default recovery, reserve replenishment, and borrower rehabilitation.
+## How the policy maps to code
 
-2. **`CreditScore.sol` (Risk & Reputation Engine)**:
-   - Tracks on-chain repayment history, default penalties, and late repayment records.
-   - Dynamically calculates user scores (scaled from 10 to 100).
-   - Enforces tiered borrowing limits ($0.2\text{ ETH}$ to $5.0\text{ ETH}$) based on performance.
-   - Mandates a **14-day post-default rehabilitation cooldown** before defaulted borrowers may borrow again.
-
-3. **`GLPToken.sol` (Yield-Bearing Liquidity Token)**:
-   - ERC-20 compliant pool share token.
-   - Minting and burning privileges are restricted exclusively to `LendingPool`.
-
-4. **`InterestLib.sol` (Actuarial & Interest Math)**:
-   - Implements a dual-slope (kinked) borrowing rate model:
-     - Base rate: $4.00\%$ APR ($400\text{ bps}$).
-     - Optimal utilization breakpoint: $80.00\%$ ($8000\text{ bps}$).
-     - Slope 1 (sub-optimal): $5.00\%$ ($500\text{ bps}$).
-     - Slope 2 (post-optimal): $25.00\%$ ($2500\text{ bps}$).
-   - Computes risk surcharges inversely proportional to borrower credit score ($0\text{ bps}$ to $400\text{ bps}$).
-   - Calculates simple linear interest accrual and late surcharges ($+5.00\%$ APR).
-
-5. **`useEventSync.js` (Reactive Frontend Synchronization)**:
-   - Subscribes to blockchain logs via WebSocket or adaptive HTTP polling fallback (3-second cadence).
-   - Deduplicates events using unique composite keys (`${txHash}-${logIndex}`).
-   - Detects chain reorganizations and purges removed logs (`log.removed === true`).
-   - Automatically triggers reactive UI updates (`syncTick`) across all connected browser clients without manual page refreshes.
+| Policy (PDF) | Where |
+|---|---|
+| One person, one record; a new wallet inherits history | `IdentityRegistry.register` (idHash → member), `unlinkWallet` (no open loan) |
+| Credit-builder first, capped ladder, fast-climber hold, 35% burden, cohort pause, 2% / 5% / weekly caps, 90% utilisation | `RiskEngine.quote` / `limits` |
+| Stake locked for the life of a loan | `GLPToken._update`, `LoanOpsLib.lockStake` |
+| Repayment follows income (sweep), autopay by default | `MockPayoutRouter.payout` → `LoanManager.applySweep`; `SafeRepayVault` + `LoanManager.autopay` |
+| Stages computed on read, no keeper | `LoanManager.stageOf` |
+| Flat capped late fee once per installment; Grace has no fee | `LoanManager._accrueLate` |
+| `collect` (Significant) and `markDefault` (day 30/45) with bounty | `LoanManager.collect`, `DefaultManager.markDefault` |
+| Payment holiday, tenure stretch, 1 per loan, 2 per 12 months | `LoanOpsLib.restructure` |
+| Systemic-shock mode | `IdentityRegistry.setShockMode` |
+| Classification, waterfall, residual claim, settlement, workout, appeal | `DefaultManager` |
+| Cooling-off starts at settlement; re-entry via Builder | `DefaultManager._onClaimCleared`, `RiskEngine.limits` |
+| Book losses in steps (100 / 90 / 50 / 0%) | `LoanManager.carriedValue` → `LendingPool.poolValue` |
+| Withdrawal queue paid pro rata | `LendingPool.withdraw` / `_processQueue` |
+| Score 300–900 and a scar that fades to a 30% floor | `CreditScore` |
+| Early warning, named contact, contact hours | `backend/src/services/{earlyWarning,notifier,watcher}.js` |
 
 ---
 
-## 🔄 Protocol Lifecycles & Financial Logic
+## Local setup
 
-### 1. Lender Deposit & Virtual-Offset Share Accounting
-Lenders deposit ETH into the pool and receive GLP tokens representing proportional ownership of pool cash and active loan receivables:
-$$\text{Shares to Mint} = \left\lfloor \frac{\text{Deposit Amount} \times (\text{Total GLP Supply} + 10^6)}{\text{Recognized Assets} + 10^6} \right\rfloor$$
-Where $\text{Recognized Assets} = \text{Free Cash} + \text{Total Active Loans}$.
+Prerequisites: Node.js 20+ (tested on 24), npm, MetaMask (optional; see the dev wallet below).
 
-- **Inflation Protection**: The virtual offset ensures that an attacker depositing $1\text{ wei}$ and donating large assets cannot inflate share price to dilute subsequent depositors.
-- **Zero Supply Cushion**: If total GLP share supply drops to zero while residual assets remain in the contract, subsequent depositors receive standard shares while remaining assets stay cushioned as protocol reserves without divide-by-zero errors.
-
-### 2. Loan Origination & Utilization Cap
-- **Tenure Selection**: Borrowers select repayment periods between 7 and 90 days.
-- **Credit Limit Gating**: Borrowers must hold GLP tokens and cannot borrow more than their credit tier limit.
-- **90% Utilization Cap**: The pool enforces that post-borrow active loans must not exceed $90.00\%$ of total capital:
-  $$(\text{Active Loans} + \text{Borrow Amount}) \times 10{,}000 \le (\text{Free Cash} + \text{Active Loans}) \times 9{,}000$$
-- **Rate Locking**: The combined APR (pool rate + risk surcharge) is checkpointed at origination and locked for the entire tenure.
-
-### 3. Repayment Waterfall
-Repayments follow an **interest-first, principal-second** allocation:
-1. Accrued interest is settled first.
-2. $10\%$ of interest collected is routed directly to the `insuranceReserve`.
-3. Remaining funds reduce unpaid loan principal.
-4. Any excess payment is automatically refunded to the borrower.
-
-### 4. Default Handling, Insurance Reserve & Debt Recovery (Approach A)
-If a loan remains unpaid after the due date plus a **3-day grace period**, `markDefault()` can be executed:
-- **Stage 1 (Share Set-Off)**: The borrower's GLP shares are burned against their outstanding principal up to their fair share value.
-- **Stage 2 (Insurance Reserve Absorption)**: If a principal balance remains, ring-fenced `insuranceReserve` funds absorb the shortfall.
-- **Stage 3 (Socialized Loss & Memorandum)**: Any remaining principal and accrued interest is written off from active pool assets into an off-balance memorandum (`writtenOffDebt`), and the borrower is marked as a defaulter.
-- **Debt Recovery & Rehabilitation**: Defaulters can settle their debt via `settleWrittenOffDebt()`:
-  - Repayments first restore the depleted insurance reserve.
-  - Remaining payments settle memorandum debt ($90\%$ returned to pool cash, $10\%$ to insurance reserve).
-  - Once full debt is settled, defaulter status is cleared, subject to a **14-day rehabilitation cooldown** and score penalty.
-
----
-
-## ⚙️ Reproducible Local Deployment & Setup
-
-Follow these exact steps to run a clean local deployment from scratch.
-
-### Prerequisites
-- Node.js (v18.x or v20.x recommended)
-- Git
-- Web browser with MetaMask extension installed
-
-### Step 1: Install Dependencies
 ```bash
-# In repository root
 npm install
-
-# In frontend directory
-cd frontend
-npm install
-cd ..
 ```
 
-### Step 2: Start a Fresh Local Hardhat Node (Terminal 1)
+```bash
+cd backend && npm install && cp .env.example .env && cd ..
+```
+
+```bash
+cd frontend && npm install && cd ..
+```
+
+Run each of the following in its own terminal, in order:
+
 ```bash
 npx hardhat node
 ```
-This starts an Ethereum JSON-RPC node on `http://127.0.0.1:8545` with chain ID `31337` and 20 funded test accounts.
 
-### Step 3: Deploy Smart Contracts (Terminal 2)
 ```bash
-npx hardhat run scripts/deploy.js --network localhost
-```
-*What this script does:*
-1. Deploys `GLPToken`, `CreditScore`, and `LendingPool`.
-2. Connects contract permissions (`setLendingPool`).
-3. Automatically copies compiled ABI artifacts to `frontend/src/contracts/`.
-4. Updates contract addresses in `frontend/src/utils/contractHelpers.js`.
-
-### Step 4: Configure Frontend Environment (Optional Override)
-The frontend automatically uses default local addresses, but you can create a local environment file:
-```bash
-cd frontend
-cp .env.example .env
-```
-Default configuration:
-```env
-VITE_RPC_HTTP_URL=http://127.0.0.1:8545
-VITE_CHAIN_ID=31337
-VITE_START_BLOCK=0
+npm run deploy:local
 ```
 
-### Step 5: Start the Frontend Application (Terminal 2)
+`deploy:local` deploys and wires every contract, grants roles, writes ABIs and
+`frontend/src/contracts/addresses.json`, and writes the addresses into `backend/.env`.
+
 ```bash
-cd frontend
-npm run dev
+cd backend && npm run dev
 ```
-The application will launch at `http://localhost:5173`.
+
+The backend creates its SQLite database on start (`prisma db push`). After a fresh chain,
+reset it with `npm run db:reset` so old wallets and identities do not linger.
+
+```bash
+cd frontend && npm run dev
+```
+
+Open http://localhost:5173. Vite proxies `/api` to the backend on port 4000.
+
+### Seed the demo (optional)
+
+With the node, backend and a fresh deploy running:
+
+```bash
+cd backend && npm run seed:demo
+```
+
+```bash
+npm run demo:scenarios
+```
+
+`seed:demo` signs up five accounts through the real API (OTP, SIWE, KYC, income, consent,
+on-chain registration). `demo:scenarios` then lends 20 ETH, runs credit-builder loans, moves
+chain time about 130 days and produces one **Hardship**, one **Strategic** and one **Fraud**
+default, plus one borrower in good standing:
+
+| Login (password `demo-password-1`) | Hardhat account | Story |
+|---|---|---|
+| `90f79b@demo.giglend.test` (Asha) | #3 | Hardship default → workout plan |
+| `15d34a@demo.giglend.test` (Vikram) | #4 | Strategic default (payouts kept arriving) |
+| `996550@demo.giglend.test` (Ravi) | #5 | Fraud: first-payment default with no stake; barred |
+| `14dc79@demo.giglend.test` (Meena) | #7 | Open Unsecured loan with autopay |
+| `f39fd6@demo.giglend.test` (Ops Admin) | #0 | Holds ADMIN_ROLE + DISPUTE_ROLE → Admin console |
+
+### Wallets
+
+- **MetaMask:** add network `http://127.0.0.1:8545`, chain ID `31337`, and import the Hardhat
+  test key of the account you want (they are printed by `npx hardhat node`; test keys only).
+- **Dev wallet (no MetaMask):** in the Vite dev server only, open any page with
+  `?devwallet=<n>` (for example `http://localhost:5173/login?devwallet=3`). It forwards wallet
+  requests to the local node, whose Hardhat accounts are unlocked. Use `?devwallet=off` to
+  turn it off. It does nothing in production builds.
+
+### Time travel and keepers
+
+```bash
+node scripts/timeTravel.js help
+```
+
+```bash
+node scripts/timeTravel.js advance 11
+```
+
+```bash
+node scripts/timeTravel.js status 5
+```
+
+```bash
+node scripts/timeTravel.js 31
+```
+
+The last form advances 31 days and calls `markDefault` on every loan past its default day.
+`collect <loanId>` and `default <loanId>` run single keeper actions. The in-app **Demo panel**
+does the same from the browser: mock payouts, +N days, the notifier, `collect`, `markDefault`.
+Days are policy days (`PolicyConfig.secondsPerDay`), so lowering that parameter compresses
+the whole timeline for a live demo.
 
 ---
 
-## 🦊 Local Wallet Network Configuration
+## A demo walk-through
 
-Configure MetaMask to connect to your local Hardhat node:
-
-| Parameter | Value |
-| :--- | :--- |
-| **Network Name** | Hardhat Localhost |
-| **New RPC URL** | `http://127.0.0.1:8545` |
-| **Chain ID** | `31337` |
-| **Currency Symbol** | `ETH` |
-
-### Test Accounts Setup
-To test cross-client multi-user interactions, import two separate accounts from the Hardhat node output:
-- **Account 0 (Deployer / Lender)**: Use the first test account generated by Hardhat.
-- **Account 1 (Borrower)**: Use the second test account generated by Hardhat.
-
-*(Do not use real funds or import mainnet accounts into the local network.)*
-
----
-
-## 🧪 Comprehensive Manual Demo Checklist
-
-This test plan validates cross-client reactivity between **Client A** (Lender / Account 0) and **Client B** (Borrower / Account 1).
-
-### Test 1: Liquidity Deposit (Client A)
-- **Action**: In Client A browser, navigate to the **Lend** page (`/app/lend`). Deposit `2.0 ETH`.
-- **Expected Result**: 
-  - Transaction confirms. Client A receives `2.0 GLP` shares.
-  - Pool liquidity displays `2.0 ETH`.
-  - In Client B browser, the **Pool** page (`/app/pool`) and **Transactions** page (`/app/transactions`) immediately show the `Deposited` event without page reload.
-
-### Test 2: Borrower Share Requirement (Client B Pre-Condition)
-- **Action**: In Client B browser, navigate to the **Lend** page (`/app/lend`) and deposit a nominal `0.05 ETH` to mint GLP shares. *(Note: GLPToken supports standard ERC-20 transfers on-chain, but the dApp UI interface focuses on deposit/withdrawal actions).*
-- **Expected Result**: Client B now holds GLP shares, satisfying the `"Must deposit in pool before borrowing"` prerequisite.
-
-### Test 3: Loan Origination with Tenure Selection (Client B)
-- **Action**: In Client B browser, navigate to **Borrow** (`/app/borrow`). Select a `14-day` tenure and enter `0.3 ETH` (within Client B's initial `0.5 ETH` credit limit).
-- **Expected Result**:
-  - Live preview calculates dynamic APR based on post-borrow utilization.
-  - Borrower submits transaction. Wallet confirms.
-  - Client B receives `0.3 ETH`. Active loan of `0.3 ETH` appears on **Loans** page (`/app/loans`).
-  - Client A's dashboard reflects increased pool utilization and `Borrowed` event appears in live activity.
-
-### Test 4: Utilization Cap and Credit Limit Rejection Enforcement (Client B)
-- **Action**: 
-  - **Scenario A (Credit Limit Rejection)**: Enter `1.8 ETH`.
-    - *Expected Result*: The UI warns that the amount exceeds the user's `0.5 ETH` credit limit. If forced on-chain, the contract reverts with `"Borrow amount exceeds credit limit"`.
-  - **Scenario B (90% Utilization Cap Rejection)**: If pool capital is small (e.g. pool total capital is `0.35 ETH` where the 90% cap is `0.315 ETH`), attempting to borrow `0.33 ETH` (which is within the `0.5 ETH` credit limit) strictly reverts with `"Utilization exceeds 90% cap"`.
-- **Expected Result**: In both cases, no loan is created, and no failed transaction corrupts the confirmed event log.
-
-### Test 5: Loan Repayment with Excess Refund (Client B)
-- **Action**: In Client B browser, navigate to **Loans** (`/app/loans`). Submit repayment with a slight overpayment (e.g. `0.35 ETH`).
-- **Expected Result**:
-  - Transaction confirms. Accrued interest and principal are fully settled.
-  - Exact overpayment difference is refunded back to Client B's wallet.
-  - $10\%$ of interest is deposited into the protocol `insuranceReserve`.
-  - Loan status clears. Both clients see the `Repaid` event with principal, interest, and refund details.
-
-### Test 6: GLP Share Withdrawal (Client A)
-- **Action**: In Client A browser, go to **Lend** (`/app/lend`) and withdraw `0.5 GLP`.
-- **Expected Result**:
-  - Transaction confirms. `0.5 GLP` burned, corresponding ETH returned to Client A.
-  - Pool total liquidity updates reactively across all clients.
-
-### Test 7: Default Settlement & Written-Off Debt (Simulated via Hardhat Console / Test Suite)
-- **Action**: When a loan remains unpaid past due date + 3 days, `markDefault(borrower)` is executed.
-- **Expected Result**:
-  - Borrower shares are set off against principal (Stage 1).
-  - Insurance reserve absorbs shortfall (Stage 2).
-  - Remaining unrecovered debt is written off to memorandum debt (Stage 3).
-  - Borrower is marked as `isDefaulter = true` and credit score is penalized.
-  - `DefaultSettled` event is propagated to all clients.
-
-### Test 8: Debt Recovery & Rehabilitation
-- **Action**: Defaulted borrower executes `settleWrittenOffDebt()` with required ETH.
-- **Expected Result**:
-  - Funds first replenish insurance reserve, then clear memorandum debt.
-  - `isDefaulter` flag is cleared.
-  - 14-day rehabilitation cooldown starts in `CreditScore`. Borrower cannot borrow until cooldown expires.
+1. **Sign up** (`/signup`): account → mock OTP (printed in the backend console) → link wallet
+   with SIWE → PAN-format string + Aadhaar last 4 + selfie → gig platform, payouts and every EMI →
+   consent → **Register on-chain** (submits the signed EIP-712 attestation).
+2. **Borrow** a credit-builder loan: the money stays in escrow. Repay every installment and it
+   is released to you.
+3. After 90 days of stake, take a first **Unsecured** loan of ₹1,000 (0.01 ETH) with 50% stake
+   cover. The Borrow page explains every limit and shows a live key fact statement.
+4. Miss an installment and use **+1 / +4 / +11 / +30 days** on the Demo panel. The Loans page
+   timeline moves Grace → Onset → Significant → Default. The pool value drops by stage, and
+   notices arrive in the inbox (only between 08:00 and 19:00 local time; otherwise queued).
+5. **Restructure** (before due or in Onset), or let it default: see the classification, the
+   waterfall in the Transactions ledger, the settlement quote, the workout or the appeal.
+6. Try a **fresh wallet with the same PAN**: KYC refuses while the old wallet is active. After
+   the old wallet is unlinked, the new one joins the same member record, with the default and the
+   cooling-off still in place.
 
 ---
 
-## 🔬 Test Suite Verification & Coverage
+## Policy parameters
 
-The repository includes a comprehensive 29-test automated Hardhat test suite covering financial invariants, same-block concurrency, multi-block persistence, and cross-client event synchronization.
+Every number below lives in `PolicyConfig`, is changed only through a bounds-checked
+`setParam` that emits `ParameterUpdated`, and is editable on the Admin page. Rupee figures are
+converted with `INR_PER_ETH_DEMO = 100000` (₹1,000 ≈ 0.01 ETH) in `scripts/config.js` and the
+frontend/backend config. No rupee amount appears in Solidity.
+
+| Parameter | Demo value | Bounds |
+|---|---|---|
+| `secondsPerDay` | 86400 s | 1 s – 86400 s |
+| `tierBuilderLoans` | 1 | 0 – 100 |
+| `tierStandardLoans` | 2 | 0 – 100 |
+| `tierTrustedLoans` | 4 | 0 – 100 |
+| `tierPrimeLoans` | 8 | 0 – 100 |
+| `tierStandardScore` | 600 | 300 – 900 |
+| `tierTrustedScore` | 700 | 300 – 900 |
+| `tierPrimeScore` | 800 | 300 – 900 |
+| `minInstallments` | 2 | 1 – 12 |
+| `maxInstallments` | 12 | 2 – 52 |
+| `penaltyFreeExitDays` | 1 d | 1 d – 7 d |
+| `maxActiveLoans` | 100 | 1 – 200 |
+| `builderLoansRequired` | 1 | 1 – 2 |
+| `builderMaxWei` | 0.02 ETH (≈ ₹2,000) | 0.001 ETH (≈ ₹100) – 10 ETH (≈ ₹10,00,000) |
+| `firstUnsecuredCapWei` | 0.01 ETH (≈ ₹1,000) | 0.001 ETH (≈ ₹100) – 10 ETH (≈ ₹10,00,000) |
+| `stakeAgeRequiredDays` | 90 d | 0 d – 365 d |
+| `unsecuredStakeCoverBps` | 50% | 0% – 100% |
+| `ladderMultiplierBps` | 150% | 100% – 200% |
+| `ladderEarlyMultiplierBps` | 125% | 100% – 200% |
+| `ladderEarlySteps` | 2 | 0 – 10 |
+| `ladderStepCapWei` | 0.05 ETH (≈ ₹5,000) | 0.001 ETH (≈ ₹100) – 10 ETH (≈ ₹10,00,000) |
+| `fastClimberWindowDays` | 60 d | 0 d – 365 d |
+| `burdenBps` | 35% | 10% – 50% |
+| `misdeclaredLimitCutBps` | 50% | 0% – 100% |
+| `sweepBps` | 20% | 15% – 30% |
+| `maxUtilizationBps` | 90% | 50% – 95% |
+| `perLoanCapBps` | 2% | 0.1% – 100% |
+| `clusterCapBps` | 5% | 0.1% – 100% |
+| `weeklyGrowthCapBps` | 10% | 0.1% – 100% |
+| `cohortFpdThresholdBps` | 20% | 1% – 100% |
+| `cohortMinSample` | 5 | 1 – 1000 |
+| `graceDaysShort` | 3 d | 1 d – 7 d |
+| `graceDaysLong` | 7 d | 3 d – 14 d |
+| `onsetEndDay` | 10 d | 5 d – 20 d |
+| `defaultDayShort` | 30 d | 15 d – 60 d |
+| `defaultDayLong` | 45 d | 30 d – 90 d |
+| `longLoanDays` | 90 d | 30 d – 365 d |
+| `lateFeeFlatWei` | 0.0005 ETH (≈ ₹50) | 0 ETH (≈ ₹0) – 0.01 ETH (≈ ₹1,000) |
+| `lateFeeCapBps` | 10% | 0% – 25% |
+| `bountyShareBps` | 10% | 0% – 50% |
+| `holidayFeeWei` | 0.0002 ETH (≈ ₹20) | 0 ETH (≈ ₹0) – 0.005 ETH (≈ ₹500) |
+| `carryOnsetBps` | 90% | 0% – 100% |
+| `carrySignificantBps` | 50% | 0% – 100% |
+| `termPremiumBps` | 2% | 0% – 20% |
+| `incomeDropBps` | 80% | 10% – 100% |
+| `maxRestructuresPer12m` | 2 | 0 – 4 |
+| `restructureWindowDays` | 365 d | 30 d – 730 d |
+| `shockExtraGraceDays` | 7 d | 0 d – 30 d |
+| `shockMaxDays` | 60 d | 1 d – 180 d |
+| `reserveFactorBps` | 10% | 0% – 50% |
+| `residualSweepBps` | 50% | 0% – 100% |
+| `discountHardshipBps` | 25% | 0% – 50% |
+| `discountStrategicBps` | 5% | 0% – 25% |
+| `discountFraudBps` | 0% | 0% – 0% |
+| `coolingHardshipDays` | 30 d | 0 d – 365 d |
+| `coolingStrategicDays` | 365 d | 30 d – 1095 d |
+| `appealWindowDays` | 21 d | 7 d – 60 d |
+| `workoutMaxDays` | 180 d | 30 d – 180 d |
+| `fraudThinStakeDays` | 30 d | 0 d – 180 d |
+| `maxQueueLength` | 50 | 1 – 200 |
+| `scoreBase` | 550 | 300 – 900 |
+| `installmentPoints` | 4 pts | 0 pts – 50 pts |
+| `loanPoints` | 15 pts | 0 pts – 100 pts |
+| `stakeAgeMaxPoints` | 30 pts | 0 pts – 100 pts |
+| `stakeAgeFullDays` | 365 d | 1 d – 1095 d |
+| `lateMarkPoints` | 10 pts | 0 pts – 100 pts |
+| `restructurePoints` | 5 pts | 0 pts – 100 pts |
+| `misdeclaredPoints` | 40 pts | 0 pts – 200 pts |
+| `weightOnTimeBps` | 100% | 0% – 100% |
+| `weightGraceBps` | 60% | 0% – 100% |
+| `weightLateBps` | 20% | 0% – 100% |
+| `scarStrategicPoints` | 90 pts | 0 pts – 300 pts |
+| `scarHardshipPoints` | 60 pts | 0 pts – 300 pts |
+| `scarFloorBps` | 30% | 0% – 100% |
+| `scarDecayDays` | 730 d | 30 d – 1825 d |
+| `settleScarBps` | 70% | 30% – 100% |
+| `workoutScarBps` | 60% | 30% – 100% |
+
+---
+
+## Tests
 
 ```bash
-# Run all tests
-npm test
+npx hardhat test
 ```
 
-### Verified Test Suites
-1. **`test/GigLendV2.test.js` (14 Tests)**:
-   - Group 1: Virtual-offset share valuation & inflation attack resistance ($10^6\text{ wei}$ offset).
-   - Group 2: Same-block utilization concurrency race (confirms first transaction succeeds, second transaction reverts with 90% cap in identical block).
-   - Group 3: Sequential multi-block utilization persistence.
-   - Group 4: Interest accrual, rate locking, and interest-first repayment waterfall with overpayment refunds.
-   - Group 5: Default impairment waterfall (Approach A exact boundary thresholds: $415238095238093787\text{ wei}$ and $415238095238093786\text{ wei}$).
-   - Group 6: Written-off debt recovery, reserve replenishment, and rehabilitation cooldown.
-   - Group 7: Backward-compatible legacy `borrow(amount)` overload.
+```bash
+cd backend && npm test
+```
 
-2. **`test/crossClientSync.test.js` (9 Tests)**:
-   - Multi-client event propagation (deposits, borrows, repayments, withdrawals).
-   - Reverted transaction isolation (failed calls do not show in confirmed activity).
-   - Reconnection catch-up for offline clients.
-   - Composite log deduplication (`${txHash}-${logIndex}`).
-   - Account and network isolation (chain ID mismatch rejection).
-   - Chain reorganization handling (`log.removed === true` purging).
-
-3. **`test/EconomicInvariants.test.js` (6 Tests)**:
-   - Virtual-offset behavior when share supply returns to zero after inflation attack.
-   - Dust deposit rejection when large residual assets exist with zero shares.
-   - Liquidity withdrawal invariant (cannot withdraw more than free cash).
-   - Simultaneous borrowing and 90% utilization cap enforcement across multiple borrowers.
-   - Complete lifecycle invariant validation (deposit → borrow → interest → repay → reserve).
-   - Default settlement with complete reserve depletion and subsequent full recovery.
+| Suite | Covers |
+|---|---|
+| `test/GigLendV2.test.js`, `EconomicInvariants.test.js`, `crossClientSync.test.js` | The 29 V2 tests migrated to the new engine: virtual-offset shares, inflation attack, 90% cap (same-block race), rate lock, interest-first repayment with a 10% reserve cut, refunds, fair-price stake set-off at the exact share threshold, claim recovery, event sync |
+| `test/IdentityRegistry.test.js` | Bounded parameters, attestation replay / expiry / wrong signer / tampering, re-attestation, one active wallet per identity, inheritance |
+| `test/LoanEngine.test.js` | Locked GLP cannot move, stake cover and guarantors, Builder escrow released only on full repayment, SafeRepay limits, income sweep, contract sizes |
+| `test/Prevention.test.js` | Builder-first, 90-day stake, ₹1,000 first cap, 1.5× ladder and early steps, fast-climber hold, 35% burden, misdeclared debt, 2% / 5% / weekly caps, cohort pause, score events |
+| `test/Lifecycle.test.js` | Stage boundaries, Grace without fee or score effect, one non-compounding late fee per installment, `collect` timing and bounty, restructures and limits, shock mode never touching principal |
+| `test/DefaultRecovery.test.js` | Dust-stake attacker earns nothing, the three default types, appeal and reclassify, waterfall order, settlement and cooling-off, residual sweep, workout, new-wallet inheritance, second default, scar floor |
+| `test/PoolAccounting.test.js` | Stage provisions and cure, lower price for a Significant-stage withdrawal, pro rata queue, disclosures |
+| `backend/test/auth.test.js` | OTP flow, SIWE login with wallet mismatch rejected, nonce replay, resumable wizard, duplicate idHash attaches to the existing identity, attestation signature |
+| `backend/test/notifier.test.js` | Quiet hours and queueing, named contact and grievance line on every message, help first, retention, early-warning signals |
 
 ---
 
-## ⚠️ Protocol Limitations & Production Boundaries
+## Limitations (prototype)
 
-To maintain rigorous engineering integrity, the following boundaries and limitations are explicitly noted:
-
-1. **Credit Scoring & Income Attestation**:
-   - The current `CreditScore.sol` contract calculates scores based on internal on-chain repayment history and simulated income (`simulatedIncome = 1000`).
-   - Production deployment requires integration with off-chain decentralized oracle networks (e.g. Chainlink Functions, TLSNotary, or zkTLS) to cryptographically verify real-world gig platform earnings.
-
-2. **Interest Accrual Model**:
-   - Interest accrues using simple annualized linear interest rather than continuous compound interest.
-   - Rates are locked at origination and do not adjust dynamically for existing loans as pool utilization changes.
-
-3. **Single Asset Liquidity**:
-   - The pool natively operates on native ETH. It does not support ERC-20 stablecoins (e.g., USDC, USDT), which would reduce exchange-rate volatility risk for gig workers.
-
-4. **Network & Consensus Assumptions**:
-   - Event synchronization and same-block concurrency tests were verified using the local Hardhat EVM environment (`chainId: 31337`).
-   - Deep multi-block reorganizations (>5 blocks), high network latency, and public mempool frontrunning dynamics have not been evaluated under live public mainnet conditions.
+- **Bounded loop:** `poolValue()` iterates at most `maxActiveLoans` (100) open loans. A
+  production pool would need checkpointed provisions or an off-chain-proven aggregate.
+- **Mock oracles:** KYC, OTP, income and payouts are mocks. The attester is a single local key.
+  Production would use zk identity (e.g. Anon Aadhaar), Account Aggregator data and a
+  regulated partner for credit-bureau reporting.
+- **Single-key admin:** the deployer holds `ADMIN_ROLE` / `DISPUTE_ROLE` locally. Production needs a
+  Safe multisig and published dispute procedures.
+- **One open loan per member**, native ETH only, simple interest, demo-sized amounts.
+- **EIP-7702 autopay** (delegating a plain wallet to SafeRepay limits) is future work. The prototype
+  uses a prefunded vault.
+- Full list of deviations from the PDF: [`docs/IMPLEMENTATION_NOTES.md`](docs/IMPLEMENTATION_NOTES.md).
 
 ---
 

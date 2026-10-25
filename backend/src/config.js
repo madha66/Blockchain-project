@@ -14,7 +14,7 @@ export const config = {
   frontendOrigin: env.FRONTEND_ORIGIN || "http://localhost:5173",
   inrPerEth: Number(env.INR_PER_ETH_DEMO || 100000),
   isTest: env.NODE_ENV === "test",
-  authRateLimit: Number(env.AUTH_RATE_LIMIT || 30),
+  authRateLimit: Number(env.AUTH_RATE_LIMIT || 60),
   uploadsDir: env.UPLOADS_DIR || "uploads",
   attestationValidityDays: Number(env.ATTESTATION_VALIDITY_DAYS || 180),
   // Wallets treated as admins in the UI (on-chain roles are still enforced by the contracts).

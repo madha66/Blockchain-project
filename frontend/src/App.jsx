@@ -3,7 +3,11 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useWallet } from './hooks/useWallet';
 import { useContract } from './hooks/useContract';
 import { useEventSync } from './hooks/useEventSync';
+import { AuthProvider } from './context/AuthContext';
+import ProtectedRoute from './components/auth/ProtectedRoute';
 import LandingPage from './pages/LandingPage';
+import SignupPage from './pages/SignupPage';
+import LoginPage from './pages/LoginPage';
 import AppLayout from './pages/app/AppLayout';
 import Dashboard from './pages/app/Dashboard';
 import LendPage from './pages/app/LendPage';
@@ -12,32 +16,53 @@ import WalletPage from './pages/app/WalletPage';
 import LoansPage from './pages/app/LoansPage';
 import PoolPage from './pages/app/PoolPage';
 import TransactionsPage from './pages/app/TransactionsPage';
+import ProfilePage from './pages/app/ProfilePage';
 
 function App() {
   const wallet = useWallet();
   const { account, provider, signer } = wallet;
+  const runner = signer || provider;
 
-  const lendingPool = useContract('LendingPool', signer || provider);
-  const creditScore = useContract('CreditScore', signer || provider);
-  const glpToken = useContract('GLPToken', signer || provider);
-
-  const contracts = { lendingPool, creditScore, glpToken };
+  const contracts = {
+    lendingPool: useContract('LendingPool', runner),
+    creditScore: useContract('CreditScore', runner),
+    glpToken: useContract('GLPToken', runner),
+    identityRegistry: useContract('IdentityRegistry', runner),
+    policyConfig: useContract('PolicyConfig', runner),
+  };
   const eventSync = useEventSync(provider, account);
+  const props = { wallet, contracts, eventSync };
+
+  const borrowerOnly = (element) => (
+    <ProtectedRoute contracts={contracts} wallet={wallet} requireRegistered>
+      {element}
+    </ProtectedRoute>
+  );
+  const loggedInOnly = (element) => (
+    <ProtectedRoute contracts={contracts} wallet={wallet}>
+      {element}
+    </ProtectedRoute>
+  );
 
   return (
-    <Routes>
-      <Route path="/" element={<LandingPage wallet={wallet} />} />
-      <Route path="/app" element={<AppLayout wallet={wallet} contracts={contracts} eventSync={eventSync} />}>
-        <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard" element={<Dashboard wallet={wallet} contracts={contracts} eventSync={eventSync} />} />
-        <Route path="lend" element={<LendPage wallet={wallet} contracts={contracts} eventSync={eventSync} />} />
-        <Route path="borrow" element={<BorrowPage wallet={wallet} contracts={contracts} eventSync={eventSync} />} />
-        <Route path="wallet" element={<WalletPage wallet={wallet} contracts={contracts} eventSync={eventSync} />} />
-        <Route path="loans" element={<LoansPage wallet={wallet} contracts={contracts} eventSync={eventSync} />} />
-        <Route path="pool" element={<PoolPage wallet={wallet} contracts={contracts} eventSync={eventSync} />} />
-        <Route path="transactions" element={<TransactionsPage wallet={wallet} contracts={contracts} eventSync={eventSync} />} />
-      </Route>
-    </Routes>
+    <AuthProvider account={account}>
+      <Routes>
+        <Route path="/" element={<LandingPage wallet={wallet} />} />
+        <Route path="/signup" element={<SignupPage {...props} />} />
+        <Route path="/login" element={<LoginPage {...props} />} />
+        <Route path="/app" element={<AppLayout {...props} />}>
+          <Route index element={<Navigate to="dashboard" replace />} />
+          <Route path="dashboard" element={<Dashboard {...props} />} />
+          <Route path="lend" element={<LendPage {...props} />} />
+          <Route path="borrow" element={borrowerOnly(<BorrowPage {...props} />)} />
+          <Route path="wallet" element={<WalletPage {...props} />} />
+          <Route path="loans" element={borrowerOnly(<LoansPage {...props} />)} />
+          <Route path="pool" element={<PoolPage {...props} />} />
+          <Route path="transactions" element={<TransactionsPage {...props} />} />
+          <Route path="profile" element={loggedInOnly(<ProfilePage {...props} />)} />
+        </Route>
+      </Routes>
+    </AuthProvider>
   );
 }
 

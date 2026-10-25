@@ -1,0 +1,161 @@
+// GigLend backend schema. SQLite for zero-setup local runs; every type used here maps
+// directly to PostgreSQL (switch the provider and DATABASE_URL to migrate).
+// Personal data (name, email, phone, KYC references, selfie) lives only here, never on-chain.
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id             String         @id @default(cuid())
+  name           String
+  email          String         @unique
+  phone          String         @unique
+  passwordHash   String
+  contactVerified Boolean       @default(false)
+  signupStep     Int            @default(1) // next step to complete; 6 = done
+  wallet         String?        @unique // lowercase address
+  identityId     String?
+  identity       Identity?      @relation(fields: [identityId], references: [id])
+  timezone       String         @default("Asia/Kolkata")
+  isAdmin        Boolean        @default(false)
+  deviceHash     String?
+  fundingWallet  String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  otps           Otp[]
+  consents       Consent[]
+  gigProfile     GigProfile?
+  notifications  Notification[]
+  attestations   AttestationRecord[]
+}
+
+// One real person. Users (login accounts) that pass KYC with the same idHash share it.
+model Identity {
+  id               String   @id @default(cuid())
+  idHash           String   @unique
+  panMasked        String // e.g. "ABxxxxxx4F"
+  aadhaarRef       String // last 4 digits / reference only; a full Aadhaar is never stored
+  selfiePath       String?
+  clusterId        String
+  clusterOverride  String?
+  cohortId         Int
+  activeWallet     String?
+  contactId        String
+  contact          Contact  @relation(fields: [contactId], references: [id])
+  createdAt        DateTime @default(now())
+  users            User[]
+}
+
+model Contact {
+  id         String     @id @default(cuid())
+  name       String     @unique
+  role       String
+  identities Identity[]
+}
+
+model Otp {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id])
+  purpose    String // signup | login
+  codeHash   String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  attempts   Int       @default(0)
+  createdAt  DateTime  @default(now())
+}
+
+model SiweNonce {
+  nonce     String    @id
+  userId    String
+  purpose   String // link | login
+  expiresAt DateTime
+  usedAt    DateTime?
+}
+
+model GigProfile {
+  id                 String @id @default(cuid())
+  userId             String @unique
+  user               User   @relation(fields: [userId], references: [id])
+  platform           String
+  workerId           String
+  monthsActive       Int
+  payoutFrequency    String // weekly | biweekly
+  monthlyPayoutsJson String
+  declaredDebtsJson  String
+  assessedMonthlyInr Int
+  declaredDebtInr    Int
+  stabilityBand      String // stable | variable | volatile
+  updatedAt          DateTime @updatedAt
+}
+
+// Append-only consent history (DPDP-style): the latest row per kind is the current state.
+model Consent {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  kind      String // data_use | autopay | peer_visibility
+  granted   Boolean
+  createdAt DateTime @default(now())
+}
+
+model AttestationRecord {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  nonce     String   @unique
+  expiry    Int
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id])
+  kind         String
+  title        String
+  body         String
+  contactName  String
+  status       String    @default("queued") // queued | sent
+  dedupeKey    String?   @unique
+  scheduledFor DateTime  @default(now())
+  sentAt       DateTime?
+  readAt       DateTime?
+  createdAt    DateTime  @default(now())
+}
+
+// Auth audit log: event names and user IDs only, never personal data.
+model AuthEvent {
+  id        String   @id @default(cuid())
+  userId    String?
+  event     String
+  createdAt DateTime @default(now())
+}
+
+model ChainCursor {
+  id        String @id
+  lastBlock Int
+}
+
+model PayoutRecord {
+  id        String @id // txHash-logIndex
+  wallet    String
+  amountWei String
+  sweptWei  String
+  chainTs   Int
+}
+
+model SweepRecord {
+  id          String @id
+  wallet      String
+  loanId      Int
+  amountWei   String
+  expectedWei String
+  chainTs     Int
+}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { HiMenu, HiX } from 'react-icons/hi';
+import ProfileMenu from '../auth/ProfileMenu';
 import './Navbar.css';
 
 const Navbar = ({ wallet }) => {
@@ -68,6 +69,7 @@ const Navbar = ({ wallet }) => {
         </ul>
 
         <div className="navbar-actions hide-mobile">
+          <ProfileMenu />
           {account ? (
             <button className="btn btn-gold btn-sm" onClick={handleLaunch}>
               Launch App
@@ -103,6 +105,7 @@ const Navbar = ({ wallet }) => {
             </li>
           </ul>
           <div className="mobile-menu-actions">
+            <ProfileMenu />
             {account ? (
               <>
                 <div className="mobile-wallet-info">

@@ -1,6 +1,9 @@
+import { useMemo } from 'react';
 import { getContract } from '../utils/contractHelpers';
 
-export const useContract = (contractName, signerOrProvider) => {
-  if (!signerOrProvider) return null;
-  return getContract(contractName, signerOrProvider);
-};
+// Memoised so effects that depend on a contract do not re-run on every render.
+export const useContract = (contractName, signerOrProvider) =>
+  useMemo(
+    () => (signerOrProvider ? getContract(contractName, signerOrProvider) : null),
+    [contractName, signerOrProvider]
+  );

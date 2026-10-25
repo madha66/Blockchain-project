@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Outlet, NavLink, Link, useNavigate } from 'react-router-dom';
-import { HiHome, HiCreditCard, HiTrendingUp, HiTrendingDown, HiCollection, HiChartBar, HiClipboardList, HiMenu, HiX, HiLogout } from 'react-icons/hi';
+import { HiHome, HiCreditCard, HiTrendingUp, HiTrendingDown, HiCollection, HiChartBar, HiClipboardList, HiMenu, HiX, HiLogout, HiUserCircle, HiExclamation } from 'react-icons/hi';
+import ProfileMenu from '../../components/auth/ProfileMenu';
+import { useAuth } from '../../context/AuthContext';
 import './AppLayout.css';
 
 const navItems = [
@@ -11,12 +13,14 @@ const navItems = [
   { path: '/app/loans', label: 'Loans', icon: <HiClipboardList size={20} /> },
   { path: '/app/pool', label: 'Lend Pool', icon: <HiCollection size={20} /> },
   { path: '/app/transactions', label: 'Transactions', icon: <HiChartBar size={20} /> },
+  { path: '/app/profile', label: 'Profile', icon: <HiUserCircle size={20} /> },
 ];
 
 const AppLayout = ({ wallet, eventSync }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { account, connectWallet } = wallet;
   const navigate = useNavigate();
+  const { walletMismatch, user } = useAuth();
 
   return (
     <div className="app-layout">
@@ -88,6 +92,7 @@ const AppLayout = ({ wallet, eventSync }) => {
               <span>{eventSync?.connectionMode === 'ws' ? 'WebSocket Sync' : 'HTTP Polling Sync'}</span>
             </div>
 
+            <ProfileMenu compact />
             {account ? (
               <div className="app-wallet-badge">
                 <span className="app-wallet-dot"></span>
@@ -102,8 +107,19 @@ const AppLayout = ({ wallet, eventSync }) => {
         </header>
 
         <main className="app-content">
+          {walletMismatch && (
+            <div className="wallet-mismatch-banner" role="alert">
+              <HiExclamation size={20} />
+              <span>
+                MetaMask is on {account.slice(0, 6)}…{account.slice(-4)}, but your account is linked to{' '}
+                {user.wallet.slice(0, 6)}…{user.wallet.slice(-4)}. Actions are blocked until you switch back.
+              </span>
+            </div>
+          )}
           {account ? (
-            <Outlet />
+            <div className={walletMismatch ? 'actions-blocked' : undefined} aria-disabled={walletMismatch}>
+              <Outlet />
+            </div>
           ) : (
             <div className="app-connect-prompt">
               <div className="connect-prompt-card">

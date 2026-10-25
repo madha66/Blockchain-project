@@ -7,6 +7,7 @@ import path from "path";
 // ─────────────────────────────────────────────────────────────────────────────
 const RPC_URL = process.env.RPC_URL || "http://127.0.0.1:8545";
 const CONTRACT_HELPERS_PATH = path.resolve("frontend/src/utils/contractHelpers.js");
+const ADDRESSES_PATH = path.resolve("frontend/src/contracts/addresses.json");
 const LENDING_POOL_ARTIFACT_PATH = path.resolve("frontend/src/contracts/LendingPool.json");
 
 /**
@@ -14,6 +15,12 @@ const LENDING_POOL_ARTIFACT_PATH = path.resolve("frontend/src/contracts/LendingP
  */
 export function getDeployedAddresses() {
   try {
+    if (fs.existsSync(ADDRESSES_PATH)) {
+      const a = JSON.parse(fs.readFileSync(ADDRESSES_PATH, "utf8"));
+      if (a.LendingPool) {
+        return { ...a, lendingPool: a.LendingPool, creditScore: a.CreditScore, glpToken: a.GLPToken };
+      }
+    }
     if (fs.existsSync(CONTRACT_HELPERS_PATH)) {
       const content = fs.readFileSync(CONTRACT_HELPERS_PATH, "utf8");
       const lpMatch = content.match(/LendingPool:\s*(?:import\.meta\.env\.\w+\s*\|\|\s*)?['"](0x[a-fA-F0-9]{40})['"]/);

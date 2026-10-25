@@ -1,24 +1,36 @@
 import { ethers } from 'ethers';
 
-import LendingPoolABI from '../contracts/LendingPool.json';
-import CreditScoreABI from '../contracts/CreditScore.json';
-import GLPTokenABI from '../contracts/GLPToken.json';
+import DEPLOYED from '../contracts/addresses.json';
 
-export const CONTRACT_ADDRESSES = {
-  LendingPool: import.meta.env.VITE_LENDING_POOL_ADDRESS || '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0',
-  CreditScore: import.meta.env.VITE_CREDIT_SCORE_ADDRESS || '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512',
-  GLPToken: import.meta.env.VITE_GLP_TOKEN_ADDRESS || '0x5FbDB2315678afecb367f032d93F642f64180aa3',
-};
+// Every ABI copied in by scripts/deploy.js (frontend/src/contracts/<Name>.json).
+const ABI_MODULES = import.meta.glob('../contracts/*.json', { eager: true });
+const ABIS = Object.fromEntries(
+  Object.entries(ABI_MODULES)
+    .map(([file, mod]) => [file.split('/').pop().replace('.json', ''), (mod.default || mod).abi])
+    .filter(([, abi]) => Array.isArray(abi))
+);
+
+// LendingPool → VITE_LENDING_POOL_ADDRESS, GLPToken → VITE_GLP_TOKEN_ADDRESS
+const envAddress = (name) =>
+  import.meta.env[
+    `VITE_${name.replace(/([a-z])([A-Z])/g, '$1_$2').replace(/([A-Z])([A-Z][a-z])/g, '$1_$2').toUpperCase()}_ADDRESS`
+  ];
+
+// Addresses come from addresses.json (written by deploy.js); VITE_<NAME>_ADDRESS overrides.
+export const CONTRACT_ADDRESSES = Object.fromEntries(
+  Object.keys({ ...DEPLOYED, ...ABIS })
+    .filter((name) => name !== 'chainId')
+    .map((name) => [name, envAddress(name) || DEPLOYED[name] || null])
+);
+
+export const hasContract = (name) => Boolean(ABIS[name] && CONTRACT_ADDRESSES[name]);
 
 export const getContract = (name, providerOrSigner) => {
-  let abi;
-  if (name === 'LendingPool') abi = LendingPoolABI.abi;
-  else if (name === 'CreditScore') abi = CreditScoreABI.abi;
-  else if (name === 'GLPToken') abi = GLPTokenABI.abi;
-
-  const address = CONTRACT_ADDRESSES[name];
-  return new ethers.Contract(address, abi, providerOrSigner);
+  if (!hasContract(name)) return null;
+  return new ethers.Contract(CONTRACT_ADDRESSES[name], ABIS[name], providerOrSigner);
 };
+
+export const getAbi = (name) => ABIS[name];
 
 /**
  * Returns a dedicated provider for cross-client event synchronization.

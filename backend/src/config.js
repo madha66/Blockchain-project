@@ -16,7 +16,7 @@ export const config = {
   isTest: env.NODE_ENV === "test",
   authRateLimit: Number(env.AUTH_RATE_LIMIT || 60),
   uploadsDir: env.UPLOADS_DIR || "uploads",
-  attestationValidityDays: Number(env.ATTESTATION_VALIDITY_DAYS || 180),
+  attestationValidityDays: Number(env.ATTESTATION_VALIDITY_DAYS || 365),
   // Wallets treated as admins in the UI (on-chain roles are still enforced by the contracts).
   adminWallets: (env.ADMIN_WALLETS || "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
     .split(",")

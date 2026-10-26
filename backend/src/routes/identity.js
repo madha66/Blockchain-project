@@ -78,10 +78,22 @@ export function identityRoutes({ chain }) {
     "/consent",
     ah(async (req, res) => {
       const body = z
-        .object({ wallet: address, type: z.enum(SIGNED_CONSENTS), granted: z.boolean(), signature: z.string().min(10), signedAt: z.string() })
+        .object({
+          wallet: address,
+          type: z.enum(SIGNED_CONSENTS),
+          granted: z.boolean(),
+          signature: z.string().min(10),
+          signedAt: z.string(),
+          employer: employerSchema.optional(),
+        })
         .parse(req.body);
+      const { employer, ...consent } = body;
       const account = await User.findOne({ wallet: body.wallet });
-      await recordSignedConsent({ ...body, userId: account?._id ?? null });
+      await recordSignedConsent({ ...consent, userId: account?._id ?? null });
+      // The platform a notice may go to, given together with the signed platform-notice consent.
+      if (employer && body.type === "platform_notice" && body.granted) {
+        await saveEmployerContact({ wallet: body.wallet, userId: account?._id ?? null, ...employer });
+      }
       res.json({ ok: true });
     })
   );

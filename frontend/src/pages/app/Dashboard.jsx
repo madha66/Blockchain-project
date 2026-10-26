@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { ethers } from 'ethers';
+import IdentityStatusCard from '../../components/IdentityStatusCard';
 import { 
   HiTrendingUp, 
   HiTrendingDown, 
@@ -18,7 +19,7 @@ import { TIER_NAMES } from '../../hooks/useMembership';
 import { fmtEth } from '../../utils/inr';
 import './Dashboard.css';
 
-const Dashboard = ({ wallet, contracts, eventSync }) => {
+const Dashboard = ({ wallet, contracts, eventSync, walletStatus }) => {
   const { account, provider } = wallet;
   const { lendingPool, glpToken, reserveFund, loanManager } = contracts;
   const navigate = useNavigate();
@@ -113,6 +114,8 @@ const Dashboard = ({ wallet, contracts, eventSync }) => {
           </Link>
         </div>
       </div>
+
+      <IdentityStatusCard status={walletStatus} />
 
       {/* Stats Grid */}
       <div className="dashboard-stats-grid">

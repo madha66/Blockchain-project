@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   Consent,
   CreditSnapshot,
+  EmployerContact,
   DebtSettlement,
   DefaultEvent,
   LoanEvent,
@@ -42,6 +43,7 @@ export function dataRoutes({ chain }) {
         wallet,
         ...status,
         hasAccount: Boolean(await User.exists({ wallet })),
+        hasPlatformContact: Boolean(await EmployerContact.exists({ wallet })),
         consents,
         signedConsentTypes: SIGNED_CONSENTS,
         notices: notices.map((n) => ({

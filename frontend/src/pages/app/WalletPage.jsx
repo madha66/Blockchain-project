@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ethers } from 'ethers';
 import { QRCodeSVG } from 'qrcode.react';
+import IdentityStatusCard from '../../components/IdentityStatusCard';
 import { 
   HiDuplicate, 
   HiCheck, 
@@ -13,7 +14,7 @@ import {
 import { CONTRACT_ADDRESSES } from '../../utils/contractHelpers';
 import './WalletPage.css';
 
-const WalletPage = ({ wallet, contracts }) => {
+const WalletPage = ({ wallet, contracts, walletStatus }) => {
   const { account, provider } = wallet;
   const { glpToken, loanManager, identityRegistry } = contracts;
 
@@ -100,6 +101,8 @@ const WalletPage = ({ wallet, contracts }) => {
           <span>Refresh</span>
         </button>
       </div>
+
+      <IdentityStatusCard status={walletStatus} />
 
       <div className="wallet-grid">
         {/* Left Column: QR & Public Key */}

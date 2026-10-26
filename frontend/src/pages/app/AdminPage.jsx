@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ethers } from 'ethers';
-import { HiScale, HiLightningBolt, HiFlag, HiUserGroup, HiAdjustments, HiMail } from 'react-icons/hi';
+import { HiScale, HiLightningBolt, HiFlag, HiUserGroup, HiAdjustments, HiMail, HiDocumentText, HiClipboardCheck } from 'react-icons/hi';
 import { api, describeError } from '../../utils/api';
 import { DEFAULT_TYPES } from '../../hooks/useBorrower';
 import './Admin.css';
@@ -22,6 +22,10 @@ const AdminPage = ({ wallet, contracts, eventSync }) => {
   const [flagged, setFlagged] = useState([]);
   const [params, setParams] = useState([]);
   const [log, setLog] = useState([]);
+  const [notices, setNotices] = useState([]);
+  const [audit, setAudit] = useState({ items: [], indexer: null });
+  const [auditCategory, setAuditCategory] = useState('');
+  const [resolution, setResolution] = useState({});
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
   const [shock, setShock] = useState({ cohortId: '', days: '14', event: '' });
@@ -76,6 +80,7 @@ const AdminPage = ({ wallet, contracts, eventSync }) => {
         )
       );
       api('/admin/message-log').then((d) => setLog(d.items)).catch(() => setLog([]));
+      api('/notices').then((d) => setNotices(d.items)).catch(() => setNotices([]));
     } catch (err) {
       setMsg({ type: 'error', text: reasonOf(err) });
     }
@@ -84,6 +89,28 @@ const AdminPage = ({ wallet, contracts, eventSync }) => {
   useEffect(() => {
     load();
   }, [load, eventSync?.syncTick]);
+
+  const loadAudit = useCallback(() => {
+    api(`/admin/audit${auditCategory ? `?category=${auditCategory}` : ''}`)
+      .then(setAudit)
+      .catch(() => setAudit({ items: [], indexer: null }));
+  }, [auditCategory]);
+
+  useEffect(() => {
+    loadAudit();
+  }, [loadAudit, eventSync?.syncTick]);
+
+  const resolve = async (disputeId, outcome) => {
+    setMsg(null);
+    try {
+      await api(`/admin/disputes/${disputeId}/resolve`, { method: 'POST', body: { outcome, resolution: resolution[disputeId] || undefined } });
+      setMsg({ type: 'success', text: `Dispute ${outcome}.` });
+      load();
+      loadAudit();
+    } catch (err) {
+      setMsg({ type: 'error', text: describeError(err) });
+    }
+  };
 
   const run = async (fn, success) => {
     setBusy(true);
@@ -239,6 +266,85 @@ const AdminPage = ({ wallet, contracts, eventSync }) => {
                     </button>
                   )}
                 </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
+      <section className="dark-card adm-card">
+        <h2><HiDocumentText /> Platform notices and disputes</h2>
+        <p className="text-secondary">
+          Created when an expulsion passes. Sent only after the 7-day dispute window, if no dispute is upheld and the member
+          signed the platform-notice consent. Prototype: "sent" means stored here; nothing leaves the system.
+        </p>
+        <table className="adm-table">
+          <thead><tr><th>Wallet</th><th>Proposal</th><th>Balance</th><th>Window ends</th><th>Status</th><th>Recipient</th></tr></thead>
+          <tbody>
+            {notices.length === 0 && <tr><td colSpan={6}>No notices.</td></tr>}
+            {notices.map((n) => (
+              <React.Fragment key={n.id}>
+                <tr>
+                  <td className="adm-mono">{n.wallet.slice(0, 10)}…</td>
+                  <td>#{n.proposalId}</td>
+                  <td>{Number(ethers.formatEther(n.amountOutstandingWei || '0')).toFixed(4)} ETH</td>
+                  <td>{new Date(n.disputeWindowEndsAt * 1000).toLocaleString()}</td>
+                  <td>{n.status.replaceAll('_', ' ')}</td>
+                  <td>{n.recipient ? `${n.recipient.platformName} (${n.recipient.contactEmail})` : '—'}</td>
+                </tr>
+                {n.text && (
+                  <tr><td colSpan={6}><pre className="adm-mono" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{n.text}</pre></td></tr>
+                )}
+                {n.disputes.map((d) => (
+                  <tr key={d.id}>
+                    <td colSpan={3}>Dispute: “{d.reason}”</td>
+                    <td colSpan={2}>{d.status}{d.resolution ? ` · ${d.resolution}` : ''}</td>
+                    <td>
+                      {d.status === 'open' && (
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          <input
+                            className="adm-input"
+                            placeholder="Note (optional)"
+                            value={resolution[d.id] || ''}
+                            onChange={(e) => setResolution((r) => ({ ...r, [d.id]: e.target.value }))}
+                          />
+                          <button className="btn btn-gold btn-sm" onClick={() => resolve(d.id, 'upheld')}>Uphold</button>
+                          <button className="btn btn-ghost btn-sm" onClick={() => resolve(d.id, 'rejected')}>Reject</button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
+      <section className="dark-card adm-card">
+        <h2><HiClipboardCheck /> Audit log</h2>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          {['', 'identity', 'consent', 'reminder', 'notice', 'dispute', 'governance', 'auth'].map((c) => (
+            <button key={c || 'all'} className={`btn btn-sm ${auditCategory === c ? 'btn-gold' : 'btn-ghost'}`} onClick={() => setAuditCategory(c)}>
+              {c || 'All'}
+            </button>
+          ))}
+          {audit.indexer && (
+            <span className="text-secondary" style={{ fontSize: '0.8rem' }}>
+              Indexer at block {audit.indexer.lastBlock ?? '—'} · {audit.indexer.proposals} proposals · {audit.indexer.pendingNotices} open notices
+            </span>
+          )}
+        </div>
+        <table className="adm-table">
+          <thead><tr><th>Time</th><th>Category</th><th>Event</th><th>Wallet</th><th>Details</th></tr></thead>
+          <tbody>
+            {audit.items.map((a) => (
+              <tr key={a.id}>
+                <td>{new Date(a.createdAt).toLocaleString()}</td>
+                <td>{a.category}</td>
+                <td>{a.event}</td>
+                <td className="adm-mono">{a.wallet ? `${a.wallet.slice(0, 10)}…` : '—'}</td>
+                <td className="adm-mono" style={{ fontSize: '0.75rem' }}>{Object.keys(a.data || {}).length ? JSON.stringify(a.data) : ''}</td>
               </tr>
             ))}
           </tbody>

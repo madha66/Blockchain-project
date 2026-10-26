@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useWallet } from './hooks/useWallet';
 import { useContract } from './hooks/useContract';
 import { useEventSync } from './hooks/useEventSync';
+import { useWalletStatus } from './hooks/useWalletStatus';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import LandingPage from './pages/LandingPage';
@@ -20,6 +21,8 @@ import ProfilePage from './pages/app/ProfilePage';
 import NotificationsPage from './pages/app/NotificationsPage';
 import AdminPage from './pages/app/AdminPage';
 import DemoPage from './pages/app/DemoPage';
+import VerifyPage from './pages/app/VerifyPage';
+import GovernancePage from './pages/app/GovernancePage';
 
 function App() {
   const wallet = useWallet();
@@ -39,12 +42,20 @@ function App() {
     payoutRouter: useContract('MockPayoutRouter', runner),
     reserveFund: useContract('ReserveFund', runner),
     portfolioLens: useContract('PortfolioLens', runner),
+    governance: useContract('DefaulterGovernance', runner),
   };
   const eventSync = useEventSync(provider, account);
-  const props = { wallet, contracts, eventSync };
+  const walletStatus = useWalletStatus(contracts, account, eventSync.syncTick);
+  const props = { wallet, contracts, eventSync, walletStatus };
 
   const borrowerOnly = (element) => (
     <ProtectedRoute contracts={contracts} wallet={wallet} requireRegistered>
+      {element}
+    </ProtectedRoute>
+  );
+  // Borrowing is closed to expelled wallets; the Loans page stays open so they can repay.
+  const borrowOnly = (element) => (
+    <ProtectedRoute contracts={contracts} wallet={wallet} requireRegistered walletStatus={walletStatus} blockExpelled>
       {element}
     </ProtectedRoute>
   );
@@ -64,7 +75,7 @@ function App() {
           <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard {...props} />} />
           <Route path="lend" element={<LendPage {...props} />} />
-          <Route path="borrow" element={borrowerOnly(<BorrowPage {...props} />)} />
+          <Route path="borrow" element={borrowOnly(<BorrowPage {...props} />)} />
           <Route path="wallet" element={<WalletPage {...props} />} />
           <Route path="loans" element={borrowerOnly(<LoansPage {...props} />)} />
           <Route path="pool" element={<PoolPage {...props} />} />
@@ -73,6 +84,8 @@ function App() {
           <Route path="notifications" element={loggedInOnly(<NotificationsPage {...props} />)} />
           <Route path="admin" element={loggedInOnly(<AdminPage {...props} />)} />
           <Route path="demo" element={loggedInOnly(<DemoPage {...props} />)} />
+          <Route path="verify" element={<VerifyPage {...props} />} />
+          <Route path="governance" element={<GovernancePage {...props} />} />
         </Route>
       </Routes>
     </AuthProvider>

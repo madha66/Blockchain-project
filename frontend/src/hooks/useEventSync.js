@@ -12,6 +12,7 @@ const WATCHED = [
   'ReserveFund',
   'PolicyConfig',
   'MockPayoutRouter',
+  'DefaulterGovernance',
 ];
 
 const DTYPES = ['None', 'Hardship', 'Strategic', 'Fraud'];
@@ -89,6 +90,22 @@ function describe(name, a) {
       return { type: 'identity', label: 'score', amount: `${a.delta > 0n ? '+' : ''}${a.delta}`, details: `Member #${a.memberId}: ${ethers.decodeBytes32String(a.reasonCode)}` };
     case 'ParameterUpdated':
       return { type: 'admin', label: 'parameter', amount: '', details: `${ethers.decodeBytes32String(a.key)}: ${a.oldValue} → ${a.newValue}` };
+    case 'ProposalCreated':
+      return { type: 'governance', label: Number(a.kind) === 0 ? 'expel proposal' : 'reinstate proposal', user: a.target, amount: '', details: `Proposal #${a.proposalId} by ${short(a.proposer)}, voting until ${new Date(Number(a.endTime) * 1000).toLocaleString()}` };
+    case 'VoteCast':
+      return { type: 'governance', label: a.support ? 'vote for' : 'vote against', user: a.voter, amount: eth(a.weight).replace(' ETH', ' GLP'), details: `Proposal #${a.proposalId}` };
+    case 'ProposalExecuted':
+      return { type: 'governance', label: a.passed ? 'passed' : 'defeated', user: a.target, amount: '', details: `Proposal #${a.proposalId} (${Number(a.kind) === 0 ? 'expel' : 'reinstate'}) ${a.passed ? 'executed' : 'did not pass'}` };
+    case 'ProposalCancelled':
+      return { type: 'governance', label: 'cancelled', user: a.target, amount: '', details: `Proposal #${a.proposalId} cancelled: the debt was cleared` };
+    case 'WalletExpelled':
+      return { type: 'governance', label: a.expelled ? 'expelled' : 'reinstated', user: a.wallet, amount: '', details: a.expelled ? 'Deposits, loans and voting closed for this wallet' : 'Wallet reinstated by a member vote' };
+    case 'IdentityBanned':
+      return { type: 'governance', label: 'identity banned', amount: '', details: `Member #${a.memberId}: this identity cannot register again` };
+    case 'IdentityUnbanned':
+      return { type: 'governance', label: 'identity unbanned', amount: '', details: `Member #${a.memberId}` };
+    case 'StakeSeized':
+      return { type: 'recovery', label: 'GLP set-off', user: a.wallet, amount: eth(a.value), details: `Member #${a.memberId}: ${eth(a.shares).replace(' ETH', ' GLP')} applied to the debt on expulsion` };
     case 'PayoutRouted':
       return { type: 'repay', label: 'payout', user: a.worker, amount: eth(a.amount), details: `Sweep ${eth(a.sweptToLoan)}, claim ${eth(a.sweptToClaim)}, forwarded ${eth(a.forwarded)}` };
     default:

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Outlet, NavLink, Link, useNavigate } from 'react-router-dom';
-import { HiHome, HiCreditCard, HiTrendingUp, HiTrendingDown, HiCollection, HiChartBar, HiClipboardList, HiMenu, HiX, HiLogout, HiUserCircle, HiExclamation, HiBell, HiShieldCheck, HiBeaker } from 'react-icons/hi';
+import { HiHome, HiCreditCard, HiTrendingUp, HiTrendingDown, HiCollection, HiChartBar, HiClipboardList, HiMenu, HiX, HiLogout, HiUserCircle, HiExclamation, HiBell, HiShieldCheck, HiBeaker, HiScale, HiBadgeCheck } from 'react-icons/hi';
+import StatusBanner from '../../components/StatusBanner';
 import NotificationBell from '../../components/auth/NotificationBell';
 import '../app/Admin.css';
 import ProfileMenu from '../../components/auth/ProfileMenu';
@@ -15,13 +16,15 @@ const navItems = [
   { path: '/app/loans', label: 'Loans', icon: <HiClipboardList size={20} /> },
   { path: '/app/pool', label: 'Lend Pool', icon: <HiCollection size={20} /> },
   { path: '/app/transactions', label: 'Transactions', icon: <HiChartBar size={20} /> },
+  { path: '/app/governance', label: 'Governance', icon: <HiScale size={20} /> },
+  { path: '/app/verify', label: 'Identity', icon: <HiBadgeCheck size={20} /> },
   { path: '/app/profile', label: 'Profile', icon: <HiUserCircle size={20} /> },
   { path: '/app/notifications', label: 'Notifications', icon: <HiBell size={20} /> },
 ];
 
 const isLocalChain = Number(import.meta.env.VITE_CHAIN_ID || 31337) === 31337;
 
-const AppLayout = ({ wallet, eventSync }) => {
+const AppLayout = ({ wallet, contracts, eventSync, walletStatus }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { account, connectWallet } = wallet;
   const navigate = useNavigate();
@@ -126,6 +129,7 @@ const AppLayout = ({ wallet, eventSync }) => {
               </span>
             </div>
           )}
+          {account && <StatusBanner status={walletStatus} contracts={contracts} />}
           {account ? (
             <div className={walletMismatch ? 'actions-blocked' : undefined} aria-disabled={walletMismatch}>
               <Outlet />

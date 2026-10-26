@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { HiLockClosed, HiIdentification } from 'react-icons/hi';
+import { HiLockClosed, HiIdentification, HiBan } from 'react-icons/hi';
 import { useAuth } from '../../context/AuthContext';
 import { useMembership } from '../../hooks/useMembership';
 import './auth.css';
@@ -19,7 +19,7 @@ const Gate = ({ icon, title, children }) => (
  * Borrowing routes need a full login, a linked wallet that MetaMask is using, and an
  * on-chain IdentityRegistry registration. Lending routes are not wrapped.
  */
-const ProtectedRoute = ({ children, contracts, wallet, requireRegistered = false }) => {
+const ProtectedRoute = ({ children, contracts, wallet, requireRegistered = false, walletStatus, blockExpelled = false }) => {
   const { isLoggedIn, loading, user, scope, walletMismatch } = useAuth();
   const location = useLocation();
   const membership = useMembership(contracts?.identityRegistry, wallet?.account);
@@ -67,6 +67,24 @@ const ProtectedRoute = ({ children, contracts, wallet, requireRegistered = false
       <Gate icon={<HiIdentification size={40} />} title="Register on-chain">
         <p>Your verification is done. Submit your signed attestation to the identity registry to start borrowing.</p>
         <Link className="btn btn-gold" to="/app/profile">Go to profile</Link>
+      </Gate>
+    );
+  }
+
+  if (blockExpelled && (walletStatus?.expelled || walletStatus?.banned)) {
+    return (
+      <Gate icon={<HiBan size={40} />} title="Borrowing is closed for this wallet">
+        <p>This wallet was expelled by a member vote. You can still repay or settle from the Loans page.</p>
+        <Link className="btn btn-gold" to="/app/loans">Go to Loans</Link>
+      </Gate>
+    );
+  }
+
+  if (blockExpelled && walletStatus && !walletStatus.loading && !walletStatus.verified) {
+    return (
+      <Gate icon={<HiIdentification size={40} />} title="Verify your identity">
+        <p>Your identity attestation is missing or has expired. Verify again to borrow.</p>
+        <Link className="btn btn-gold" to="/app/verify">Verify identity</Link>
       </Gate>
     );
   }

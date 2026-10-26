@@ -7,10 +7,11 @@ import {
   HiLightningBolt, 
   HiShieldCheck 
 } from 'react-icons/hi';
+import { Link } from 'react-router-dom';
 import { fmtEth } from '../../utils/inr';
 import './LendPage.css';
 
-const LendPage = ({ wallet, contracts, eventSync }) => {
+const LendPage = ({ wallet, contracts, eventSync, walletStatus }) => {
   const { account, provider } = wallet;
   const { lendingPool, glpToken, defaultManager, identityRegistry, reserveFund } = contracts;
 
@@ -26,6 +27,11 @@ const LendPage = ({ wallet, contracts, eventSync }) => {
   const [poolLiquidity, setPoolLiquidity] = useState('0.0000');
   const [insuranceReserve, setInsuranceReserve] = useState('0.0000');
   const [statusMsg, setStatusMsg] = useState(null);
+  // Deposits need a verified identity and a wallet that is not expelled (enforced on-chain too).
+  const depositBlocked = activeTab === 'deposit' && walletStatus && !walletStatus.loading &&
+    (!walletStatus.verified || walletStatus.expelled || walletStatus.banned);
+  // GLP is frozen while a default claim is unpaid.
+  const withdrawBlocked = activeTab === 'withdraw' && walletStatus?.defaulter;
 
   const fetchBalances = useCallback(async () => {
     if (!account || !provider) return;
@@ -308,12 +314,29 @@ const LendPage = ({ wallet, contracts, eventSync }) => {
               </div>
             )}
 
+            {depositBlocked && (
+              <div className="status-banner status-banner-info" style={{ marginTop: '16px', marginBottom: 0 }}>
+                <HiInformationCircle size={20} />
+                <div className="status-banner-body">
+                  {walletStatus.expelled || walletStatus.banned
+                    ? 'Deposits are closed for an expelled wallet.'
+                    : <span>Deposits need a verified identity. <Link to="/app/verify">Verify your identity</Link> first.</span>}
+                </div>
+              </div>
+            )}
+            {withdrawBlocked && (
+              <div className="status-banner status-banner-warning" style={{ marginTop: '16px', marginBottom: 0 }}>
+                <HiExclamationCircle size={20} />
+                <div className="status-banner-body">Your GLP is frozen until your default balance is settled.</div>
+              </div>
+            )}
+
             {/* Submit Button */}
             <button 
               type="submit" 
               className="btn btn-gold btn-lg" 
               style={{ width: '100%', marginTop: '24px' }}
-              disabled={loading || !amount || Number(amount) <= 0}
+              disabled={loading || !amount || Number(amount) <= 0 || depositBlocked || withdrawBlocked}
             >
               {loading ? (
                 <span>Processing On-Chain...</span>

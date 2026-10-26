@@ -115,6 +115,7 @@ const TransactionsPage = ({ wallet, eventSync }) => {
             ['restructure', 'Restructures'],
             ['appeal', 'Appeals'],
             ['identity', 'Identity & score'],
+            ['governance', 'Governance'],
             ['admin', 'Parameters'],
           ].map(([key, label]) => (
             <button

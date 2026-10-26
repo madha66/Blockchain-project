@@ -160,11 +160,26 @@ const KycStep = ({ onDone }) => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [inherited, setInherited] = useState(false);
+  const [walletTaken, setWalletTaken] = useState(false);
+
+  // The linked wallet already has another identity on-chain: go back and link a different one.
+  const changeWallet = async () => {
+    setBusy(true);
+    try {
+      await api('/signup/wallet/reset', { method: 'POST' });
+      await onDone();
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
     setError('');
+    setWalletTaken(false);
     try {
       const form = new FormData();
       form.append('pan', pan);
@@ -179,6 +194,7 @@ const KycStep = ({ onDone }) => {
       }
     } catch (err) {
       setError(describeError(err));
+      setWalletTaken(err?.code === 'WALLET_HAS_IDENTITY');
     } finally {
       setBusy(false);
     }
@@ -211,6 +227,11 @@ const KycStep = ({ onDone }) => {
         </div>
       )}
       <ErrorNote error={error} />
+      {walletTaken && (
+        <button type="button" className="btn btn-outline w-full" onClick={changeWallet} disabled={busy}>
+          Link a different wallet
+        </button>
+      )}
       <button className="btn btn-gold w-full" disabled={busy}>{busy ? 'Verifying…' : 'Verify identity'}</button>
     </form>
   );

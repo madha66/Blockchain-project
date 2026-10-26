@@ -242,4 +242,28 @@ describe("Signup wizard, identity and attestation", () => {
     const res = await agent.post("/api/signup/consent").send({ dataUse: false });
     expect(res.status).toBe(400);
   });
+
+  it("refuses to link a wallet already registered on-chain with another identity, and lets the user pick another", async () => {
+    const registered = newWallet();
+    const { app } = makeApp({
+      identityOf: async (w) => (w.toLowerCase() === registered.address.toLowerCase() ? `0x${"ab".repeat(32)}` : ethers.ZeroHash),
+    });
+    const agent = request.agent(app);
+    const created = await agent.post("/api/signup/account").send(uniqueAccount()).expect(201);
+    await agent.post("/api/signup/otp/verify").send({ code: created.body.devOtp }).expect(200);
+
+    const refused = await agent.post("/api/signup/wallet").send(await siweSign(agent, registered));
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toBe("WALLET_HAS_IDENTITY");
+
+    const fresh = newWallet();
+    const linked = await agent.post("/api/signup/wallet").send(await siweSign(agent, fresh));
+    expect(linked.status).toBe(200);
+    expect(linked.body.step).toBe(3);
+
+    // Before KYC the user can go back and link a different wallet.
+    const reset = await agent.post("/api/signup/wallet/reset").expect(200);
+    expect(reset.body.step).toBe(2);
+    await agent.post("/api/signup/wallet").send(await siweSign(agent, newWallet())).expect(200);
+  });
 });

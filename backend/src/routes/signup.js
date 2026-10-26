@@ -2,6 +2,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import multer from "multer";
 import { z } from "zod";
+import { ethers } from "ethers";
 import { Consent, GigProfile, Identity, User } from "../models.js";
 import { ah, requireSession, setSession } from "../middleware/auth.js";
 import { issueOtp, verifyOtp } from "../services/otp.js";
@@ -108,9 +109,17 @@ export function signupRoutes({ chain }) {
       const owner = await User.findOne({ wallet: result.address });
       if (owner && owner.id !== req.user.id) return res.status(409).json({ error: "WALLET_TAKEN" });
 
+      // One identity per wallet: a wallet already registered on-chain can only be linked by the
+      // account that holds that identity (so KYC cannot fail later with WALLET_HAS_IDENTITY).
+      const identity = req.user.identity ? await Identity.findById(req.user.identity) : null;
+      const onChain = await chain.identityOf(result.address);
+      if (onChain && onChain !== ethers.ZeroHash && onChain !== identity?.identityHash) {
+        await logAuthEvent("wallet_link_refused_has_identity", req.user.id);
+        return res.status(409).json({ error: "WALLET_HAS_IDENTITY" });
+      }
+
       // Re-linking after an unlink: the identity's active wallet follows, if it is free.
-      if (req.user.identity) {
-        const identity = await Identity.findById(req.user.identity);
+      if (identity) {
         if (identity.linkedWallet && identity.linkedWallet !== result.address) {
           return res.status(409).json({ error: "IDENTITY_WALLET_ACTIVE" });
         }
@@ -120,6 +129,21 @@ export function signupRoutes({ chain }) {
       await User.updateOne({ _id: req.user._id }, { wallet: result.address });
       await logAuthEvent("wallet_linked", req.user.id);
       res.json({ wallet: result.address, step: await refreshStep(req.user.id) });
+    })
+  );
+
+  /**
+   * Back to step 2 to link a different wallet. Only before identity verification: once an
+   * identity exists, changing wallets goes through unlink on the profile page.
+   */
+  r.post(
+    "/wallet/reset",
+    session,
+    ah(async (req, res) => {
+      if (req.user.identity) return res.status(409).json({ error: "KYC_ALREADY_DONE" });
+      await User.updateOne({ _id: req.user._id }, { $unset: { wallet: 1 } });
+      await logAuthEvent("wallet_reset", req.user.id);
+      res.json({ step: await refreshStep(req.user.id) });
     })
   );
 

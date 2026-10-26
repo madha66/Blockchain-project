@@ -21,6 +21,17 @@ const ERROR_TEXT = {
   IDENTITY_WALLET_ACTIVE:
     'This identity already has an active wallet. Unlink the old wallet (it must have no open loan) and try again.',
   OPEN_LOAN: 'You cannot unlink your wallet while a loan is open.',
+  WALLET_HAS_IDENTITY:
+    'This wallet is already registered on-chain with a different identity (one identity per wallet). Link a wallet that has not been registered. In the local demo, Hardhat accounts #10–#18 are free; #1, #2, #6 and #8 are registered at deploy.',
+  IDENTITY_BANNED: 'This identity was banned by a member vote and cannot register again.',
+  KYC_ALREADY_DONE: 'Identity verification is already done for this account.',
+  CONSENT_SIGNATURE_INVALID: 'The consent signature does not match this wallet. Please sign again.',
+  CONSENT_EXPIRED: 'The consent signature is too old. Please sign again.',
+  CONSENT_REPLAYED: 'A newer consent decision is already recorded.',
+  PROOF_EXPIRED: 'The wallet signature expired. Please try again.',
+  PROOF_BAD_SIGNATURE: 'The wallet signature does not match this wallet.',
+  DISPUTE_WINDOW_CLOSED: 'The 7-day dispute window for this notice has closed.',
+  DISPUTE_SIGNATURE_INVALID: 'The dispute must be signed by the wallet the notice is about.',
   SELFIE_REQUIRED: 'Please add a selfie photo.',
   RATE_LIMITED: 'Too many attempts. Wait a minute and try again.',
   NOT_AUTHENTICATED: 'Please log in.',

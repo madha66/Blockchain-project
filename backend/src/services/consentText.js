@@ -27,7 +27,7 @@ export const CONSENT_TEXT = {
 export const SIGNED_CONSENTS = Object.keys(CONSENT_TEXT);
 
 /** The exact string the wallet signs for a consent decision. */
-export function consentMessage(type, wallet, granted) {
+export function consentMessage(type, wallet, granted, signedAt) {
   const c = CONSENT_TEXT[type];
   if (!c) throw new Error(`Unknown consent type ${type}`);
   return [
@@ -38,5 +38,7 @@ export function consentMessage(type, wallet, granted) {
     c.text,
     "",
     `Decision: ${granted ? "I AGREE" : "I DO NOT AGREE"}`,
+    // The time makes every decision a distinct signature, so an old one cannot be replayed.
+    `Signed at: ${signedAt}`,
   ].join("\n");
 }

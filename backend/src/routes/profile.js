@@ -65,7 +65,7 @@ export function profileRoutes({ chain }) {
     ah(async (req, res) => {
       if (!req.user.wallet) return res.status(400).json({ error: "NO_WALLET" });
       const body = z
-        .object({ type: z.enum(SIGNED_CONSENTS), granted: z.boolean(), signature: z.string().min(10) })
+        .object({ type: z.enum(SIGNED_CONSENTS), granted: z.boolean(), signature: z.string().min(10), signedAt: z.string() })
         .parse(req.body);
       await recordSignedConsent({ wallet: req.user.wallet, userId: req.user._id, ...body });
       res.json({ user: await publicUser(req.user._id) });

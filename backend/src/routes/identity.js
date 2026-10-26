@@ -9,9 +9,9 @@ import { issueOtp, verifyOtp } from "../services/otp.js";
 import { PAN_REGEX, normaliseEmail, normalisePan } from "../services/identity.js";
 import { resolveIdentity } from "../services/identityStore.js";
 import { CONSENT_TEXT, SIGNED_CONSENTS, consentMessage } from "../services/consentText.js";
-import { recordSignedConsent } from "../services/consents.js";
+import { checkSignedConsent, recordSignedConsent } from "../services/consents.js";
 import { signForIdentity } from "../services/attestationBuilder.js";
-import { checkIdentityProof, identityProofMessage, recoverSigner } from "../services/walletProof.js";
+import { checkIdentityProof, identityProofMessage } from "../services/walletProof.js";
 import { logAudit } from "../services/audit.js";
 import { employerSchema, saveEmployerContact } from "./profile.js";
 
@@ -30,7 +30,7 @@ const verifySchema = z
     payoutFrequency: z.enum(["weekly", "biweekly"]).default("weekly"),
     proof: z.object({ message: z.string(), signature: z.string() }),
     consents: z
-      .array(z.object({ type: z.enum(SIGNED_CONSENTS), granted: z.boolean(), signature: z.string().min(10) }))
+      .array(z.object({ type: z.enum(SIGNED_CONSENTS), granted: z.boolean(), signature: z.string().min(10), signedAt: z.string() }))
       .length(SIGNED_CONSENTS.length),
     employer: employerSchema.optional(),
   })
@@ -53,17 +53,36 @@ export function identityRoutes({ chain }) {
     "/consent-text",
     ah(async (req, res) => {
       const wallet = req.query.wallet ? address.parse(req.query.wallet) : null;
+      // The client signs the messages for this exact time (returned as signedAt).
+      const signedAt = new Date().toISOString();
       const consents = Object.fromEntries(
         Object.entries(CONSENT_TEXT).map(([type, c]) => [
           type,
           {
             ...c,
-            ...(wallet ? { messages: { agree: consentMessage(type, wallet, true), decline: consentMessage(type, wallet, false) } } : {}),
+            ...(wallet
+              ? { messages: { agree: consentMessage(type, wallet, true, signedAt), decline: consentMessage(type, wallet, false, signedAt) } }
+              : {}),
           },
         ])
       );
-      const issuedAt = new Date().toISOString();
-      res.json({ consents, ...(wallet ? { proofMessage: identityProofMessage(wallet, issuedAt) } : {}) });
+      res.json({ consents, signedAt, ...(wallet ? { proofMessage: identityProofMessage(wallet, signedAt) } : {}) });
+    })
+  );
+
+  /**
+   * Changes a signed consent without an account session: the consent signature itself
+   * proves the wallet (it covers the wallet, the decision and the time).
+   */
+  r.post(
+    "/consent",
+    ah(async (req, res) => {
+      const body = z
+        .object({ wallet: address, type: z.enum(SIGNED_CONSENTS), granted: z.boolean(), signature: z.string().min(10), signedAt: z.string() })
+        .parse(req.body);
+      const account = await User.findOne({ wallet: body.wallet });
+      await recordSignedConsent({ ...body, userId: account?._id ?? null });
+      res.json({ ok: true });
     })
   );
 
@@ -87,11 +106,7 @@ export function identityRoutes({ chain }) {
         if (!otp.ok) return res.status(400).json({ error: otp.reason });
       }
       // Check every consent signature before anything is stored.
-      for (const c of body.consents) {
-        if (recoverSigner(consentMessage(c.type, body.wallet, c.granted), c.signature) !== body.wallet) {
-          return res.status(400).json({ error: "CONSENT_SIGNATURE_INVALID", type: c.type });
-        }
-      }
+      for (const c of body.consents) await checkSignedConsent({ wallet: body.wallet, ...c });
       const account = await User.findOne({ wallet: body.wallet });
       const { identity, inherited } = await resolveIdentity({
         type: body.method === "email" ? "email" : "pan",

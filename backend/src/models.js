@@ -127,6 +127,7 @@ const consentSchema = new Schema(
     granted: { type: Boolean, required: true },
     textVersion: { type: String, default: null },
     signature: { type: String, default: null }, // EIP-191 personal_sign of the exact text + decision
+    signedAt: { type: String, default: null }, // ISO time inside the signed message
     timestamp: { type: Date, default: Date.now },
   },
   { timestamps: true }

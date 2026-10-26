@@ -20,9 +20,15 @@ async function signedConsents(wallet, decisions = {}) {
   return Promise.all(
     SIGNED_CONSENTS.map(async (type) => {
       const granted = decisions[type] ?? true;
-      return { type, granted, signature: await wallet.signMessage(consentMessage(type, wallet.address, granted)) };
+      const signedAt = new Date().toISOString();
+      return { type, granted, signedAt, signature: await wallet.signMessage(consentMessage(type, wallet.address, granted, signedAt)) };
     })
   );
+}
+
+/** One signed consent decision, as the frontend sends it. */
+async function signConsent(wallet, type, granted, signedAt = new Date().toISOString()) {
+  return { wallet: wallet.address, type, granted, signedAt, signature: await wallet.signMessage(consentMessage(type, wallet.address, granted, signedAt)) };
 }
 
 async function proof(wallet) {
@@ -140,12 +146,27 @@ describe("Identity verification (IAM)", () => {
     for (const r of rows) {
       expect(r.textVersion).toMatch(/-v1$/);
       expect(r.timestamp).toBeInstanceOf(Date);
-      expect(ethers.verifyMessage(consentMessage(r.type, wallet.address, r.granted), r.signature)).toBe(wallet.address);
+      expect(ethers.verifyMessage(consentMessage(r.type, wallet.address, r.granted, r.signedAt), r.signature)).toBe(wallet.address);
     }
     const view = await request(app).get(`/api/users/${wallet.address}`).expect(200);
     expect(view.body.consents.platform_notice.granted).toBe(true);
     expect(view.body.consents.payout_deduction.granted).toBe(false);
     expect(JSON.stringify(view.body)).not.toContain("consent@example.test");
+  });
+
+  it("lets the wallet withdraw consent, and refuses a replayed older decision", async () => {
+    const { app } = makeApp();
+    const wallet = newWallet();
+    const oldGrant = await signConsent(wallet, "platform_notice", true, new Date(Date.now() - 60_000).toISOString());
+    await request(app).post("/api/identity/consent").send(oldGrant).expect(200);
+    const withdraw = await signConsent(wallet, "platform_notice", false);
+    await request(app).post("/api/identity/consent").send(withdraw).expect(200);
+
+    const replay = await request(app).post("/api/identity/consent").send(oldGrant);
+    expect(replay.status).toBe(400);
+    expect(replay.body.error).toBe("CONSENT_REPLAYED");
+    const view = await request(app).get(`/api/users/${wallet.address}`).expect(200);
+    expect(view.body.consents.platform_notice.granted).toBe(false);
   });
 });
 
@@ -155,12 +176,7 @@ describe("Consent-based platform notices", () => {
 
   async function expelledWithNotice(w, { consent, contact = true } = {}) {
     if (consent !== undefined) {
-      await recordSignedConsent({
-        wallet: w.address,
-        type: "platform_notice",
-        granted: consent,
-        signature: await w.signMessage(consentMessage("platform_notice", w.address, consent)),
-      });
+      await recordSignedConsent(await signConsent(w, "platform_notice", consent));
     }
     if (contact) await saveEmployerContact({ wallet: w.address, platformName: "Zomato", contactEmail: "ops@zomato.test" });
     return createPendingNotice({ wallet: w.address, memberId: 7, proposalId: 1, amountWei: E(0.004), chainTs: T0, spd: DAY });
@@ -196,12 +212,7 @@ describe("Consent-based platform notices", () => {
   it("is not sent when consent is withdrawn before the window ends, or the debt is cleared", async () => {
     const w = wallet();
     const n = await expelledWithNotice(w, { consent: true });
-    await recordSignedConsent({
-      wallet: w.address,
-      type: "platform_notice",
-      granted: false,
-      signature: await w.signMessage(consentMessage("platform_notice", w.address, false)),
-    });
+    await recordSignedConsent(await signConsent(w, "platform_notice", false));
     await processDueNotices({ chainNow: T0 + 8 * DAY });
     expect((await Notice.findById(n._id)).status).toBe("not_sent_no_consent");
 
@@ -239,12 +250,7 @@ describe("Consent-based platform notices", () => {
 
     const b = wallet();
     const nb = await createPendingNotice({ wallet: b.address, memberId: 8, proposalId: 2, amountWei: E(0.004), chainTs: T0, spd: DAY });
-    await recordSignedConsent({
-      wallet: b.address,
-      type: "platform_notice",
-      granted: true,
-      signature: await b.signMessage(consentMessage("platform_notice", b.address, true)),
-    });
+    await recordSignedConsent(await signConsent(b, "platform_notice", true));
     await saveEmployerContact({ wallet: b.address, platformName: "Zomato", contactEmail: "ops@zomato.test" });
     const db = await fileDispute({ noticeId: nb.id, wallet: b.address, reason: "Not my loan", chainNow: T0 + DAY });
     await resolveDispute({ disputeId: db.id, outcome: "rejected" });

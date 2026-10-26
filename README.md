@@ -6,6 +6,10 @@ V3 adds **signup and login with a verified identity** (one real person, one reco
 **default-handling policy** in [`docs/Defaulter_handling.pdf`](docs/Defaulter_handling.pdf):
 prevent, detect early, cure cheaply, recover only from locked value, book losses in steps,
 and treat each default by type with an appeal.
+V3.1 adds **community expulsion voting** for members who leave a default unpaid, an
+**identity and access layer** (verified identity to deposit, borrow or vote; banned identities
+can never return), **debt enforcement** (frozen GLP, set-off on expulsion), a
+**consent-based platform notice** with a dispute window, and a **MongoDB Atlas** backend.
 
 > This is a testnet prototype. Rupee amounts and Indian rules are design benchmarks, not
 > compliance targets. KYC, OTP, income and payout data all come from **mock** providers.
@@ -22,7 +26,7 @@ deviations, parameter values and limitations: [`docs/IMPLEMENTATION_NOTES.md`](d
 frontend/ (React + Vite + ethers v6)
    │  REST + httpOnly JWT cookie (/api proxied)    │  ethers (MetaMask or the dev wallet)
    ▼                                               ▼
-backend/ (Express + Prisma/SQLite)                 contracts/ (Solidity 0.8.20, viaIR + optimizer)
+backend/ (Express + Mongoose/MongoDB Atlas)       contracts/ (Solidity 0.8.24, cancun, viaIR + optimizer)
  • signup wizard, mock OTP, SIWE login             • PolicyConfig      every policy number, bounded setters
  • mock KYC → idHash, encrypted selfie             • IdentityRegistry  members, EIP-712 attestations, tiers,
  • income assessment, declared EMIs                                    clusters, cohorts, shock mode, cooling-off
@@ -32,9 +36,13 @@ backend/ (Express + Prisma/SQLite)                 contracts/ (Solidity 0.8.20, 
  • notifier: 08:00–19:00, named contact,           • RiskEngine        pricing + every prevention rule (quote)
    grievance line, inbox                           • DefaultManager    classification, 4-step waterfall, claims,
  • admin + demo endpoints                                              settlement, workout, appeal, scar
+ • identity verify (email+OTP / simulated ID)      • DefaulterGovernance expel / reinstate votes on GLP snapshots
+ • signed consents, notices, disputes, audit log
+ • chain indexer → MongoDB mirrors + escalation
                                                    • LendingPool       deposits, provisioned poolValue(), FIFO
                                                                        withdrawal queue, fair-price stake burn
-                                                   • GLPToken          shares; locked balance cannot move
+                                                   • GLPToken          ERC20Votes shares; locked balance cannot move;
+                                                                       frozen while the holder owes a default claim
                                                    • CreditScore       300–900 by memberId, scars with 30% floor
                                                    • ReserveFund       ring-fenced loss buffer
                                                    • SafeRepayVault    prefunded autopay with borrower limits
@@ -72,6 +80,10 @@ backend/ (Express + Prisma/SQLite)                 contracts/ (Solidity 0.8.20, 
 | Withdrawal queue paid pro rata | `LendingPool.withdraw` / `_processQueue` |
 | Score 300–900 and a scar that fades to a 30% floor | `CreditScore` |
 | Early warning, named contact, contact hours | `backend/src/services/{earlyWarning,notifier,watcher}.js` |
+| Expel / reinstate by member vote | `DefaulterGovernance` |
+| Verified identity to deposit, borrow or vote; banned identities never return | `IdentityRegistry.isVerified` / `banIdentity`, `LendingPool.deposit`, `RiskEngine` |
+| Frozen GLP and set-off on expulsion | `GLPToken._update` (`Debt outstanding`), `DefaultManager.seizeStakeForClaim` |
+| Reminders, consent-gated platform notice, disputes | `backend/src/services/{indexer,notices,consents}.js` |
 
 ---
 
@@ -85,6 +97,22 @@ npm install
 
 ```bash
 cd backend && npm install && cp .env.example .env && cd ..
+```
+
+Fill in `backend/.env` (it is git-ignored; the code reads every secret from `process.env` only):
+
+- `MONGODB_URI` and `MONGODB_DB`: the Atlas connection string from **Atlas → Connect → Drivers**.
+  **Atlas → Network Access must allow your current IP address**, or the connection times out.
+- `ISSUER_PRIVATE_KEY`: the trusted identity issuer. Locally this is Hardhat account #19
+  (`0x8626…1199`); `deploy.js` grants it `ATTESTER_ROLE`.
+- `ID_ENCRYPTION_KEY`: 32 random bytes as hex. It encrypts stored identifiers (AES-256-GCM) and
+  derives the identity-hash salt, so keep it stable once members exist.
+- `RPC_URL=http://127.0.0.1:8545`, `CHAIN_ID=31337`.
+
+Check the database connection (prints `connected` or the error, never the URI):
+
+```bash
+cd backend && npm run db:ping
 ```
 
 ```bash
@@ -105,11 +133,18 @@ npm run deploy:local
 `frontend/src/contracts/addresses.json`, and writes the addresses into `backend/.env`.
 
 ```bash
-cd backend && npm run dev
+cd backend && npm start
 ```
 
-The backend creates its SQLite database on start (`prisma db push`). After a fresh chain,
-reset it with `npm run db:reset` so old wallets and identities do not linger.
+`npm start` runs the API and, in the same process, the chain indexer (event mirrors, reminders,
+notice timeline). To run the indexer on its own, set `INDEXER_IN_PROCESS=false` and run:
+
+```bash
+cd backend && npm run indexer
+```
+
+After a fresh chain, run `npm run db:reset` so old wallets, identities and mirrors do not linger
+(the indexer also rebuilds its mirrors when it finds the chain was restarted).
 
 ```bash
 cd frontend && npm run dev
@@ -177,6 +212,67 @@ the whole timeline for a live demo.
 
 ---
 
+## Identity, governance and debt rules
+
+### Identity and access (IAM)
+
+- **Verified identity is required to deposit, borrow or vote.** `IdentityRegistry.isVerified(wallet)`
+  is true when the wallet is registered, its EIP-712 attestation from the trusted issuer has not
+  expired, and its identity is not banned.
+- **Two ways to verify**, on the **Identity** page or through the sign-up wizard: email + one-time
+  code, or a simulated ID number (PAN format). `POST /api/identity/verify` checks a wallet
+  signature, refuses banned and duplicate identities, records the signed consents and returns
+  the issuer-signed attestation, which the wallet submits with `IdentityRegistry.register`.
+- **One identity per wallet, one wallet per identity.** The identity hash is
+  `keccak256(salt ‖ normalised identifier)` with `salt = HMAC-SHA256(ID_ENCRYPTION_KEY, type:identifier)`;
+  the identifier itself is stored only encrypted.
+- **A banned identity can never register again** (`Identity banned`), from any wallet.
+  Only the governance contract can call `banIdentity` / `unbanIdentity`.
+
+### Voting rules (`DefaulterGovernance`)
+
+| Rule | Value |
+|---|---|
+| Who can be proposed for expulsion | A member with an unpaid default claim, not already expelled |
+| Who can propose | A verified member holding GLP, not the target; one open proposal per target |
+| Voting power | GLP held at the snapshot block (the block before the proposal). GLP self-delegates on receipt, so no delegation step is needed; GLP moved after the snapshot does not count twice |
+| Who can vote | Verified members with GLP at the snapshot; the target and expelled wallets cannot |
+| Voting period | 3 policy days (`secondsPerDay`-scaled, so time travel and compressed days work) |
+| Quorum | 20% of GLP supply at the snapshot |
+| To pass | More than 50% of votes cast (an exact tie fails) |
+| Cancel | Anyone, once the target has cleared the debt |
+| Execute a passed expulsion | Bans the identity, marks the wallet expelled, applies its GLP to the debt |
+| Reinstate | A separate proposal, allowed only once the debt is settled; lifts the ban; the CreditScore history stays |
+
+### Debt enforcement
+
+- Expelled or unverified wallets cannot deposit or borrow. **Repaying and settling always stay open.**
+- On expulsion, the wallet's GLP is applied to the debt at the pool's fair share price and burned
+  (`DefaultManager.seizeStakeForClaim`). Any GLP left over stays with the wallet.
+- While a default claim is unpaid, GLP is **frozen**: `withdraw` and transfers revert with
+  `Debt outstanding`. GLP also stays locked during an active loan.
+
+### Consent-based reminders and platform notices
+
+1. **Day 0** after a default: a reminder in the member's inbox. **Day 3**: a second reminder.
+2. **On expulsion**: a platform notice is created as *pending*, with a **7-day dispute window**
+   (chain time). The member can dispute it from the Identity page (wallet-signed).
+3. After the window, the notice becomes **sent** only if no dispute is upheld, the debt is still
+   unpaid, and the member gave the **platform-notice consent** and named a platform contact.
+   Without that consent it is marked *not sent: no consent*. A disputed notice waits for the admin decision.
+4. Every step goes to the audit log (Admin page).
+
+The two consents (**platform notice** and **payout deduction**) are optional, shown in full, and
+signed with the wallet (EIP-191 `personal_sign`, with a timestamp so an old decision cannot be
+replayed). Members can view and withdraw them at any time. Notice text is neutral and factual.
+**GigLend never names a defaulter publicly and never contacts family, friends or phone contacts.**
+
+> **Compliance:** any third-party notice and any payout deduction must comply with India's
+> digital lending regulations (RBI Digital Lending Directions, including the recovery and
+> grievance rules) and the **Digital Personal Data Protection Act, 2023**. This prototype only
+> **simulates** sending: the notice sender is an interface whose default implementation does
+> nothing, and "sent" means the notice is stored in MongoDB and shown on the Admin page.
+
 ## A demo walk-through
 
 1. **Sign up** (`/signup`): account → mock OTP (printed in the backend console) → link wallet
@@ -194,6 +290,15 @@ the whole timeline for a live demo.
 6. Try a **fresh wallet with the same PAN**: KYC refuses while the old wallet is active. After
    the old wallet is unlinked, the new one joins the same member record, with the default and the
    cooling-off still in place.
+7. **Governance** (after `demo:scenarios`): as Vikram (`?devwallet=4`), open **Identity** and agree
+   to the platform-notice consent with a platform contact. As the lender (`?devwallet=0`), open
+   **Governance**, propose Vikram's expulsion and vote. Advance 3 days
+   (`node scripts/timeTravel.js advance 3`) and **Execute**: Vikram sees the expelled banner,
+   deposits and borrowing close, and a pending notice appears. Vikram can dispute it; the Admin
+   page upholds or rejects the dispute. After 7 more days the notice is *sent* (simulated).
+   Vikram repays from the banner, and a **reinstatement** proposal restores the wallet.
+8. **Verify a new wallet** (`?devwallet=12`) on the **Identity** page with a simulated ID number.
+   Re-using an ID that is linked to another wallet, or one that was banned, is refused.
 
 ---
 
@@ -296,6 +401,9 @@ npx hardhat test
 cd backend && npm test
 ```
 
+Backend tests run on **mongodb-memory-server** and never touch the Atlas cluster (the first run
+downloads a MongoDB binary).
+
 | Suite | Covers |
 |---|---|
 | `test/GigLendV2.test.js`, `EconomicInvariants.test.js`, `crossClientSync.test.js` | The 29 V2 tests migrated to the new engine: virtual-offset shares, inflation attack, 90% cap (same-block race), rate lock, interest-first repayment with a 10% reserve cut, refunds, fair-price stake set-off at the exact share threshold, claim recovery, event sync |
@@ -305,7 +413,9 @@ cd backend && npm test
 | `test/Lifecycle.test.js` | Stage boundaries, Grace without fee or score effect, one non-compounding late fee per installment, `collect` timing and bounty, restructures and limits, shock mode never touching principal |
 | `test/DefaultRecovery.test.js` | Dust-stake attacker earns nothing, the three default types, appeal and reclassify, waterfall order, settlement and cooling-off, residual sweep, workout, new-wallet inheritance, second default, scar floor |
 | `test/PoolAccounting.test.js` | Stage provisions and cure, lower price for a Significant-stage withdrawal, pro rata queue, disclosures |
+| `test/Governance.test.js` | Bans and IAM views, proposer and voter rules, snapshot weight without double voting, quorum and tie edges, execution bans and seizes GLP, banned identity cannot re-register, expelled wallets can only repay or settle, frozen GLP, reinstatement |
 | `backend/test/auth.test.js` | OTP flow, SIWE login with wallet mismatch rejected, nonce replay, resumable wizard, duplicate idHash attaches to the existing identity, attestation signature |
+| `backend/test/identityNotices.test.js` | Identity verification, banned and duplicate identities refused, one identity per wallet, signed consents and replay protection, consent required before a notice is sent, dispute window, dispute outcomes, neutral wording |
 | `backend/test/notifier.test.js` | Quiet hours and queueing, named contact and grievance line on every message, help first, retention, early-warning signals |
 
 ---
@@ -322,6 +432,14 @@ cd backend && npm test
 - **One open loan per member**, native ETH only, simple interest, demo-sized amounts.
 - **EIP-7702 autopay** (delegating a plain wallet to SafeRepay limits) is future work. The prototype
   uses a prefunded vault.
+- **Simulated identity:** an email OTP or a made-up ID number will not stop a determined Sybil
+  attacker with many emails. Production needs a real KYC or zk identity provider; the ban only
+  holds as long as one person maps to one identifier.
+- **Governance is plutocratic:** votes follow GLP, so a large lender can decide alone (as in the
+  demo). Production would add a cap per voter, a timelock and an appeal path.
+- **Notices are simulated:** nothing is emailed; see the compliance note above.
+- **Reorg handling** rolls mirrored events back and re-reads wallet flags from the chain, but
+  inbox messages already delivered are not withdrawn.
 - Full list of deviations from the PDF: [`docs/IMPLEMENTATION_NOTES.md`](docs/IMPLEMENTATION_NOTES.md).
 
 ---

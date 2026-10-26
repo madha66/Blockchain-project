@@ -11,6 +11,7 @@ import {
   findEvents,
   Kind,
   LOOSE,
+  depositFor,
 } from "./helpers/fixture.js";
 import { paramKey } from "../scripts/config.js";
 
@@ -25,7 +26,7 @@ describe("Prevention (Phase 3): checks before money leaves the pool", function (
     ctx = await deployGigLend(overrides);
     ({ pool, loanManager: lm, risk, registry } = ctx);
     [alice, bob, carol] = ctx.users;
-    await pool.connect(alice).deposit({ value: E(5) });
+    await depositFor(ctx, alice, E(5));
   }
 
   const open = (user, kind, amount, n = 2) => lm.connect(user).openLoan(kind, amount, n, ZERO, false);
@@ -35,14 +36,14 @@ describe("Prevention (Phase 3): checks before money leaves the pool", function (
 
     it("a first loan must be Builder; Unsecured needs a completed Builder loan", async function () {
       await register(ctx, bob);
-      await pool.connect(bob).deposit({ value: E(0.1) });
+      await depositFor(ctx, bob, E(0.1));
       await expect(open(bob, Kind.Unsecured, E(0.005))).to.be.revertedWith("Complete a Builder loan first");
       await expect(open(bob, Kind.Builder, E(0.005))).to.not.be.reverted;
     });
 
     it("the first Unsecured loan also needs 90 days of stake and stays under the ₹1,000 cap", async function () {
       await register(ctx, bob);
-      await pool.connect(bob).deposit({ value: E(0.1) });
+      await depositFor(ctx, bob, E(0.1));
       await qualify(ctx, bob, E(0.005));
       await expect(open(bob, Kind.Unsecured, E(0.005))).to.be.revertedWith("Stake must be held for 90 days");
 
@@ -62,7 +63,7 @@ describe("Prevention (Phase 3): checks before money leaves the pool", function (
     it("next limit is at most 1.5× the largest completed Unsecured loan", async function () {
       await setup({ ...LOOSE, firstUnsecuredCapWei: E(0.1), ladderEarlySteps: 0 });
       await register(ctx, bob);
-      await pool.connect(bob).deposit({ value: E(0.2) });
+      await depositFor(ctx, bob, E(0.2));
       await qualify(ctx, bob);
       const { loanId } = await openLoan(ctx, bob, { kind: Kind.Unsecured, amount: E(0.1) });
       await payOff(ctx, bob, loanId);
@@ -74,7 +75,7 @@ describe("Prevention (Phase 3): checks before money leaves the pool", function (
     it("early steps are smaller (1.25×) and each step is capped in absolute terms", async function () {
       await setup({ ...LOOSE, firstUnsecuredCapWei: E(0.1), ladderStepCapWei: E(0.02) });
       await register(ctx, bob);
-      await pool.connect(bob).deposit({ value: E(0.2) });
+      await depositFor(ctx, bob, E(0.2));
       await qualify(ctx, bob);
       const { loanId } = await openLoan(ctx, bob, { kind: Kind.Unsecured, amount: E(0.1) });
       await payOff(ctx, bob, loanId);
@@ -86,7 +87,7 @@ describe("Prevention (Phase 3): checks before money leaves the pool", function (
     it("two limit steps within 60 days, then a larger request, holds the member at the current step", async function () {
       await setup({ ...LOOSE, firstUnsecuredCapWei: E(0.06), ladderEarlySteps: 0 });
       await register(ctx, bob);
-      await pool.connect(bob).deposit({ value: E(0.3) });
+      await depositFor(ctx, bob, E(0.3));
       await qualify(ctx, bob, E(0.05));
 
       for (const amount of [E(0.06), E(0.08)]) {
@@ -102,7 +103,7 @@ describe("Prevention (Phase 3): checks before money leaves the pool", function (
     it("the hold lifts once the steps are older than the window", async function () {
       await setup({ ...LOOSE, firstUnsecuredCapWei: E(0.06), ladderEarlySteps: 0 });
       await register(ctx, bob);
-      await pool.connect(bob).deposit({ value: E(0.3) });
+      await depositFor(ctx, bob, E(0.3));
       await qualify(ctx, bob, E(0.05));
       for (const amount of [E(0.06), E(0.08)]) {
         const { loanId } = await openLoan(ctx, bob, { kind: Kind.Unsecured, amount });
@@ -190,8 +191,12 @@ describe("Prevention (Phase 3): checks before money leaves the pool", function (
   describe("Eligibility", function () {
     beforeEach(() => setup());
 
-    it("unregistered wallets cannot borrow; lending stays open to everyone", async function () {
+    // Changed for the IAM layer: lending used to be open to any wallet; deposits now need a
+    // verified identity too.
+    it("unregistered wallets can neither borrow nor deposit", async function () {
       await expect(open(bob, Kind.Builder, E(0.01))).to.be.revertedWith("Not registered");
+      await expect(pool.connect(bob).deposit({ value: E(0.01) })).to.be.revertedWith("Identity not verified");
+      await register(ctx, bob);
       await expect(pool.connect(bob).deposit({ value: E(0.01) })).to.not.be.reverted;
     });
 
@@ -226,7 +231,7 @@ describe("Prevention (Phase 3): checks before money leaves the pool", function (
     it("stake age adds up to 30 points over a year", async function () {
       await register(ctx, bob);
       const memberId = await registry.memberOf(bob.address);
-      await pool.connect(bob).deposit({ value: E(0.01) });
+      await depositFor(ctx, bob, E(0.01));
       await advanceDays(ctx, 365);
       expect(await ctx.score.stakeAgePoints(memberId)).to.equal(30n);
     });

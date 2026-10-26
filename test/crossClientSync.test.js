@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import hre from "hardhat";
-import { deployGigLend, register, openLoan, LOOSE, Kind } from "./helpers/fixture.js";
+import { deployGigLend, register, openLoan, depositFor, LOOSE, Kind } from "./helpers/fixture.js";
 
 const { ethers } = hre;
 
@@ -131,7 +131,7 @@ describe("GigLend Cross-Client Event Synchronization Suite (migrated to V3)", fu
 
     // Client A deposits 2.0 ETH
     const depositAmount = ethers.parseEther("2.0");
-    const tx = await lendingPool.connect(alice).deposit({ value: depositAmount });
+    const tx = await depositFor(ctx, alice, depositAmount);
     const receipt = await tx.wait();
 
     // Client B syncs logs from the chain
@@ -150,9 +150,9 @@ describe("GigLend Cross-Client Event Synchronization Suite (migrated to V3)", fu
 
   it("2. Client A borrows -> Client B sees confirmed loan event and updated pool state", async function () {
     // Fund pool with 5 ETH from owner
-    await lendingPool.connect(owner).deposit({ value: ethers.parseEther("5.0") });
+    await depositFor(ctx, owner, ethers.parseEther("5.0"));
     // Alice is a verified, registered member
-    await lendingPool.connect(alice).deposit({ value: ethers.parseEther("0.1") });
+    await depositFor(ctx, alice, ethers.parseEther("0.1"));
     await register(ctx, alice);
 
     const b0 = await ethers.provider.getBlockNumber();
@@ -178,8 +178,8 @@ describe("GigLend Cross-Client Event Synchronization Suite (migrated to V3)", fu
 
   it("3. Repayment updates both clients", async function () {
     // Setup deposit and borrow for Alice
-    await lendingPool.connect(owner).deposit({ value: ethers.parseEther("5.0") });
-    await lendingPool.connect(alice).deposit({ value: ethers.parseEther("0.1") });
+    await depositFor(ctx, owner, ethers.parseEther("5.0"));
+    await depositFor(ctx, alice, ethers.parseEther("0.1"));
     await register(ctx, alice);
     const borrowAmount = ethers.parseEther("0.2");
     const { loanId } = await openLoan(ctx, alice, { amount: borrowAmount });
@@ -210,7 +210,7 @@ describe("GigLend Cross-Client Event Synchronization Suite (migrated to V3)", fu
 
   it("4. Withdrawal updates both clients", async function () {
     // Alice deposits 1.0 ETH
-    await lendingPool.connect(alice).deposit({ value: ethers.parseEther("1.0") });
+    await depositFor(ctx, alice, ethers.parseEther("1.0"));
     const b0 = await ethers.provider.getBlockNumber();
 
     // Alice withdraws 0.4 GLP shares
@@ -236,8 +236,8 @@ describe("GigLend Cross-Client Event Synchronization Suite (migrated to V3)", fu
 
   it("5. Failed or reverted transaction does not appear as a successful transaction", async function () {
     // Pool has 0.5 ETH total capital (0.45 ETH owner + 0.05 ETH Alice)
-    await lendingPool.connect(owner).deposit({ value: ethers.parseEther("0.45") });
-    await lendingPool.connect(alice).deposit({ value: ethers.parseEther("0.05") });
+    await depositFor(ctx, owner, ethers.parseEther("0.45"));
+    await depositFor(ctx, alice, ethers.parseEther("0.05"));
     await register(ctx, alice);
 
     const bSetup = await ethers.provider.getBlockNumber();
@@ -271,7 +271,7 @@ describe("GigLend Cross-Client Event Synchronization Suite (migrated to V3)", fu
     clientB.disconnect();
 
     // While B is offline, Alice deposits and then borrows
-    await lendingPool.connect(alice).deposit({ value: ethers.parseEther("2.0") });
+    await depositFor(ctx, alice, ethers.parseEther("2.0"));
     await register(ctx, alice);
     await openLoan(ctx, alice, { amount: ethers.parseEther("0.2") });
 
@@ -294,7 +294,7 @@ describe("GigLend Cross-Client Event Synchronization Suite (migrated to V3)", fu
 
   it("7. Duplicate event delivery does not create duplicate history entries", async function () {
     // Alice deposits 1.0 ETH
-    const tx = await lendingPool.connect(alice).deposit({ value: ethers.parseEther("1.0") });
+    const tx = await depositFor(ctx, alice, ethers.parseEther("1.0"));
     const receipt = await tx.wait();
 
     // Initial sync
@@ -313,8 +313,8 @@ describe("GigLend Cross-Client Event Synchronization Suite (migrated to V3)", fu
 
   it("8. Switching accounts or networks does not mix data between users or chains", async function () {
     // Alice and Bob both deposit
-    await lendingPool.connect(alice).deposit({ value: ethers.parseEther("1.0") });
-    await lendingPool.connect(bob).deposit({ value: ethers.parseEther("0.5") });
+    await depositFor(ctx, alice, ethers.parseEther("1.0"));
+    await depositFor(ctx, bob, ethers.parseEther("0.5"));
 
     const b = await ethers.provider.getBlockNumber();
     await clientA.syncEvents(startBlock, b);
@@ -336,7 +336,7 @@ describe("GigLend Cross-Client Event Synchronization Suite (migrated to V3)", fu
 
   it("9. Handles chain reorganizations and purges removed logs from confirmed state", async function () {
     // Alice deposits 1.0 ETH
-    const tx = await lendingPool.connect(alice).deposit({ value: ethers.parseEther("1.0") });
+    const tx = await depositFor(ctx, alice, ethers.parseEther("1.0"));
     const receipt = await tx.wait();
 
     // Initial sync confirms the event

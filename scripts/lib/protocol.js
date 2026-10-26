@@ -15,7 +15,11 @@ export const CONTRACT_NAMES = [
   "RiskEngine",
   "DefaultManager",
   "PortfolioLens",
+  "DefaulterGovernance",
 ];
+
+// Expulsion voting rules, fixed at deployment.
+export const GOVERNANCE = { votingPeriodDays: 3, quorumBps: 2000, passThresholdBps: 5000 };
 
 const role = (ethers, name) => ethers.id(name);
 
@@ -53,6 +57,16 @@ export async function deployProtocol(ethers, { admin, attester, overrides = {}, 
   const risk = await deploy("RiskEngine", [await a(config), await a(registry), await a(loanManager), await a(pool), await a(score)]);
   const defaultManager = await deploy("DefaultManager", [admin.address, await a(config), await a(registry), await a(glp)]);
   const lens = await deploy("PortfolioLens", [await a(loanManager), await a(defaultManager), await a(pool), await a(reserve)]);
+  const governance = await deploy("DefaulterGovernance", [
+    await a(registry),
+    await a(config),
+    await a(pool),
+    await a(glp),
+    await a(defaultManager),
+    GOVERNANCE.votingPeriodDays,
+    GOVERNANCE.quorumBps,
+    GOVERNANCE.passThresholdBps,
+  ]);
 
   const LM = await a(loanManager);
   const DM = await a(defaultManager);
@@ -69,6 +83,8 @@ export async function deployProtocol(ethers, { admin, attester, overrides = {}, 
   await send(vault.grantRole(role(ethers, "LOAN_ROLE"), LM));
   await send(loanManager.grantRole(role(ethers, "DEFAULT_ROLE"), DM));
   await send(loanManager.grantRole(role(ethers, "ROUTER_ROLE"), await a(router)));
+  const GOV = await a(governance);
+  for (const c of [registry, pool, defaultManager]) await send(c.grantRole(role(ethers, "GOVERNANCE_ROLE"), GOV));
 
   // Wiring (each set once)
   await send(registry.setLoanStatus(LM));
@@ -76,6 +92,7 @@ export async function deployProtocol(ethers, { admin, attester, overrides = {}, 
   await send(pool.setLoanManager(LM));
   await send(pool.setDefaultManager(DM));
   await send(pool.setReserveFund(await a(reserve)));
+  await send(glp.setDebtView(POOL));
   await send(router.setLoanManager(LM));
   await send(router.setDefaultManager(DM));
   await send(
@@ -97,5 +114,6 @@ export async function deployProtocol(ethers, { admin, attester, overrides = {}, 
     risk,
     defaultManager,
     lens,
+    governance,
   };
 }

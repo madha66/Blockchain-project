@@ -62,6 +62,15 @@ export async function register(ctx, user, fields = {}) {
 
 export { idHashOf, signAttestation };
 
+/**
+ * Deposits into the pool. Deposits require a verified identity, so a depositor without one is
+ * first registered with the default test attestation (no effect on pool accounting).
+ */
+export async function depositFor(ctx, user, value) {
+  if ((await ctx.registry.memberOf(user.address)) === 0n) await register(ctx, user);
+  return ctx.pool.connect(user).deposit({ value });
+}
+
 export async function advanceDays(ctx, days) {
   await ethers.provider.send("evm_increaseTime", [Number(BigInt(Math.round(days * 1000)) * ctx.spd / 1000n)]);
   await ethers.provider.send("evm_mine", []);

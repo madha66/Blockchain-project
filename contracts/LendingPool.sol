@@ -19,6 +19,7 @@ import "./interfaces/IGigLend.sol";
 contract LendingPool is ReentrancyGuard, AccessControl {
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant LOAN_ROLE = keccak256("LOAN_ROLE");
+    bytes32 public constant GOVERNANCE_ROLE = keccak256("GOVERNANCE_ROLE"); // DefaulterGovernance
 
     uint256 public constant VIRTUAL_OFFSET = 1000000; // 10^6 wei virtual offset
 
@@ -38,6 +39,8 @@ contract LendingPool is ReentrancyGuard, AccessControl {
     uint256 public queueHead;
     uint256 public totalQueuedShares;
     mapping(address => uint256) public queuedSharesOf;
+    /// @notice Wallets expelled by member vote. Expulsion never cancels debt.
+    mapping(address => bool) public expelled;
 
     event Deposited(address indexed user, uint256 amount, uint256 shares);
     event Withdrawn(address indexed user, uint256 ethAmount, uint256 glpBurned);
@@ -46,6 +49,7 @@ contract LendingPool is ReentrancyGuard, AccessControl {
     event WithdrawalCancelled(address indexed user, uint256 shares);
     event ResidualSwept(address indexed user, uint256 indexed memberId, uint256 amount);
     event StakeBurned(address indexed account, uint256 shares, uint256 value);
+    event WalletExpelled(address indexed wallet, bool expelled);
 
     constructor(address admin, GLPToken _glp, PolicyConfig _config, IdentityRegistry _registry) {
         glpToken = _glp;
@@ -111,6 +115,8 @@ contract LendingPool is ReentrancyGuard, AccessControl {
      */
     function deposit() external payable nonReentrant {
         require(msg.value > 0, "Deposit must be > 0");
+        require(!expelled[msg.sender], "Wallet expelled");
+        require(registry.isVerified(msg.sender), "Identity not verified");
         uint256 value = msg.value;
 
         uint256 memberId = registry.memberOf(msg.sender);
@@ -149,6 +155,7 @@ contract LendingPool is ReentrancyGuard, AccessControl {
         require(glpAmount > 0, "Amount must be > 0");
         require(glpToken.balanceOf(msg.sender) >= glpAmount, "Insufficient GLP balance");
         require(glpToken.unlockedBalanceOf(msg.sender) >= glpAmount, "GLP locked");
+        require(!isDefaulter(msg.sender), "Debt outstanding");
 
         uint256 ethToReturn = valueOfShares(glpAmount);
         require(ethToReturn > 0, "Zero assets to return");
@@ -254,6 +261,21 @@ contract LendingPool is ReentrancyGuard, AccessControl {
         if (!found) sharesAhead = 0;
     }
 
+    /**
+     * @notice A defaulter is a member whose default left an unpaid claim. Their GLP is frozen
+     *         (no withdraw, no transfer) until the claim is settled.
+     */
+    function isDefaulter(address wallet) public view returns (bool) {
+        if (address(defaultManager) == address(0)) return false;
+        uint256 memberId = registry.memberOf(wallet);
+        return memberId != 0 && defaultManager.claimOf(memberId) > 0;
+    }
+
+    function setExpelled(address wallet, bool value) external onlyRole(GOVERNANCE_ROLE) {
+        expelled[wallet] = value;
+        emit WalletExpelled(wallet, value);
+    }
+
     function _afterStakeChange(address account) internal {
         uint256 memberId = registry.memberOf(account);
         if (memberId != 0 && glpToken.balanceOf(account) == 0 && registry.getMember(memberId).stakeSince != 0) {
@@ -321,6 +343,36 @@ contract LendingPool is ReentrancyGuard, AccessControl {
             valueCovered = valueWei;
         }
         glpToken.unlock(account, sharesBurned);
+        glpToken.burnFrom(account, sharesBurned);
+        _afterStakeChange(account);
+        emit StakeBurned(account, sharesBurned, valueCovered);
+    }
+
+    /**
+     * @notice Expulsion set-off: burns the wallet GLP (locked or not) up to `valueWei` at the
+     *         fair share price (Stage 1 valuation). The value stays with remaining lenders.
+     */
+    function seizeShares(address account, uint256 valueWei)
+        external
+        onlyRole(LOAN_ROLE)
+        nonReentrant
+        returns (uint256 sharesBurned, uint256 valueCovered)
+    {
+        uint256 balance = glpToken.balanceOf(account);
+        if (balance == 0 || valueWei == 0) return (0, 0);
+        uint256 supply = glpToken.totalSupply();
+        uint256 den = poolValue() + VIRTUAL_OFFSET;
+        uint256 needed = (valueWei * (supply + VIRTUAL_OFFSET) + den - 1) / den;
+        if (balance < needed) {
+            sharesBurned = balance;
+            valueCovered = (balance * den) / (supply + VIRTUAL_OFFSET);
+            if (valueCovered > valueWei) valueCovered = valueWei;
+        } else {
+            sharesBurned = needed;
+            valueCovered = valueWei;
+        }
+        uint256 locked = glpToken.lockedBalance(account);
+        if (locked > 0) glpToken.unlock(account, locked < sharesBurned ? locked : sharesBurned);
         glpToken.burnFrom(account, sharesBurned);
         _afterStakeChange(account);
         emit StakeBurned(account, sharesBurned, valueCovered);

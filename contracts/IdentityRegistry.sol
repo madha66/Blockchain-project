@@ -25,6 +25,7 @@ contract IdentityRegistry is AccessControl {
     bytes32 public constant ATTESTER_ROLE = keccak256("ATTESTER_ROLE");
     bytes32 public constant DISPUTE_ROLE = keccak256("DISPUTE_ROLE");
     bytes32 public constant LOAN_ROLE = keccak256("LOAN_ROLE");
+    bytes32 public constant GOVERNANCE_ROLE = keccak256("GOVERNANCE_ROLE"); // DefaulterGovernance
 
     bytes32 private constant DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
@@ -82,6 +83,8 @@ contract IdentityRegistry is AccessControl {
     mapping(uint32 => uint32) public cohortFirstPaymentDefaults;
     mapping(uint256 => uint64[2]) private _restructureTimes;
     mapping(uint32 => uint64) public shockUntil;
+    /// @notice Identities expelled by member vote. A banned identity can never register any wallet.
+    mapping(bytes32 => bool) public bannedIdentity;
     mapping(uint32 => bytes32) public shockEvent;
 
     event MemberRegistered(uint256 indexed memberId, address indexed wallet, uint32 cohortId, bytes32 clusterId);
@@ -95,6 +98,8 @@ contract IdentityRegistry is AccessControl {
     event MisdeclaredDebtFlagged(uint256 indexed memberId, bool flagged);
     event StakeSinceSet(uint256 indexed memberId, uint64 stakeSince);
     event ShockModeSet(uint32 indexed cohortId, uint64 until, bytes32 eventHash);
+    event IdentityBanned(bytes32 indexed idHash, uint256 indexed memberId);
+    event IdentityUnbanned(bytes32 indexed idHash, uint256 indexed memberId);
 
     constructor(address admin, address attester, PolicyConfig _config) {
         config = _config;
@@ -155,6 +160,7 @@ contract IdentityRegistry is AccessControl {
         require(a.expiry > block.timestamp, "Attestation expired");
         require(!usedNonces[a.nonce], "Attestation replayed");
         require(a.idHash != bytes32(0), "Empty idHash");
+        require(!bannedIdentity[a.idHash], "Identity banned");
         require(a.payoutPeriodDays > 0 && a.payoutPeriodDays <= 31, "Bad payout period");
 
         address signer = ECDSA.recover(hashAttestation(a), sig);
@@ -249,10 +255,36 @@ contract IdentityRegistry is AccessControl {
         uint256 memberId = memberOf[wallet];
         if (memberId == 0) return (false, "Not registered");
         Member storage m = _members[memberId];
+        if (bannedIdentity[m.idHash]) return (false, "Identity banned");
         if (m.attestationExpiry <= block.timestamp) return (false, "Attestation expired");
         if (m.permanentlyBarred) return (false, "Permanently barred");
         if (block.timestamp < m.coolingOffUntil) return (false, "Cooling-off active");
         return (true, "");
+    }
+
+    /**
+     * @notice Verified = registered, attestation current and identity not banned. Required to
+     *         deposit, borrow or vote.
+     */
+    function isVerified(address wallet) public view returns (bool) {
+        uint256 memberId = memberOf[wallet];
+        if (memberId == 0) return false;
+        Member storage m = _members[memberId];
+        return m.attestationExpiry > block.timestamp && !bannedIdentity[m.idHash];
+    }
+
+    /// @notice The identity hash bound to a wallet (zero if none).
+    function identityOf(address wallet) public view returns (bytes32) {
+        return _members[memberOf[wallet]].idHash;
+    }
+
+    function isBanned(address wallet) external view returns (bool) {
+        bytes32 idHash = identityOf(wallet);
+        return idHash != bytes32(0) && bannedIdentity[idHash];
+    }
+
+    function isIdentityBanned(bytes32 idHash) external view returns (bool) {
+        return bannedIdentity[idHash];
     }
 
     /**
@@ -348,6 +380,23 @@ contract IdentityRegistry is AccessControl {
         require(hasRole(LOAN_ROLE, msg.sender) || hasRole(DISPUTE_ROLE, msg.sender), "Not authorised");
         clusterFlagged[clusterId] = flagged;
         emit ClusterFlagged(clusterId, flagged);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Governance (expulsion by member vote)
+    // ─────────────────────────────────────────────────────────────────────
+
+    function banIdentity(bytes32 idHash) external onlyRole(GOVERNANCE_ROLE) {
+        require(idHash != bytes32(0), "Empty idHash");
+        require(!bannedIdentity[idHash], "Already banned");
+        bannedIdentity[idHash] = true;
+        emit IdentityBanned(idHash, memberByIdHash[idHash]);
+    }
+
+    function unbanIdentity(bytes32 idHash) external onlyRole(GOVERNANCE_ROLE) {
+        require(bannedIdentity[idHash], "Not banned");
+        bannedIdentity[idHash] = false;
+        emit IdentityUnbanned(idHash, memberByIdHash[idHash]);
     }
 
     // ─────────────────────────────────────────────────────────────────────

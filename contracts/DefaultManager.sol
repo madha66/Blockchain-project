@@ -9,6 +9,10 @@ import "./GLPToken.sol";
 import "./interfaces/IGigLend.sol";
 import "./libraries/LoanTypes.sol";
 
+interface ILendingSeize {
+    function seizeShares(address account, uint256 valueWei) external returns (uint256 sharesBurned, uint256 valueCovered);
+}
+
 interface ILoanPayoff {
     function payoffAmount(uint256 loanId) external view returns (uint256);
 }
@@ -29,6 +33,7 @@ interface ILoanPayoff {
 contract DefaultManager is AccessControl, ReentrancyGuard {
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant DISPUTE_ROLE = keccak256("DISPUTE_ROLE");
+    bytes32 public constant GOVERNANCE_ROLE = keccak256("GOVERNANCE_ROLE"); // DefaulterGovernance
 
     struct Claim {
         uint256 amount;           // total still owed (includes reserveDrawn)
@@ -77,6 +82,7 @@ contract DefaultManager is AccessControl, ReentrancyGuard {
     event Reclassified(uint256 indexed loanId, LoanTypes.DefaultType oldType, LoanTypes.DefaultType newType);
     event AppealDismissed(uint256 indexed loanId);
     event BountyPaid(address indexed caller, uint256 indexed loanId, uint256 amount);
+    event StakeSeized(uint256 indexed memberId, address indexed wallet, uint256 shares, uint256 value);
 
     constructor(address admin, PolicyConfig _config, IdentityRegistry _registry, GLPToken _glp) {
         config = _config;
@@ -463,6 +469,30 @@ contract DefaultManager is AccessControl, ReentrancyGuard {
         uint256 period = uint256(registry.getMember(memberId).payoutPeriodDays) * _p("secondsPerDay");
         uint256 periodsPaid = used / c.workoutInstallment;
         c.workoutNextDue += uint64((periodsPaid == 0 ? 0 : periodsPaid) * period);
+        if (c.amount == 0) _onClaimCleared(memberId);
+    }
+
+    /**
+     * @notice On expulsion, any GLP the wallet still holds is applied to its claim at the fair
+     *         share price and burned. The reserve draw is repaid first (cash from the pool), as for
+     *         any recovery. Expulsion never cancels the rest of the debt.
+     */
+    function seizeStakeForClaim(address wallet) external onlyRole(GOVERNANCE_ROLE) nonReentrant returns (uint256 value) {
+        uint256 memberId = registry.memberOf(wallet);
+        Claim storage c = claims[memberId];
+        if (memberId == 0 || c.amount == 0) return 0;
+        uint256 shares;
+        (shares, value) = ILendingSeize(address(pool)).seizeShares(wallet, c.amount);
+        if (value == 0) return 0;
+        if (value > c.amount) value = c.amount;
+        c.amount -= value;
+        uint256 toReserve = value < c.reserveDrawn ? value : c.reserveDrawn;
+        c.reserveDrawn -= toReserve;
+        uint256 rest = value - toReserve;
+        pool.transferToReserve(toReserve + (rest * _p("reserveFactorBps")) / 10000);
+        totalRecovered += value;
+        emit StakeSeized(memberId, wallet, shares, value);
+        emit ClaimRecovered(memberId, value, toReserve, rest);
         if (c.amount == 0) _onClaimCleared(memberId);
     }
 

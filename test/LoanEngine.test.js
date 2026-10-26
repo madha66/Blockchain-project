@@ -12,6 +12,7 @@ import {
   Status,
   LOOSE,
   ONE_ETH,
+  depositFor,
 } from "./helpers/fixture.js";
 
 const { ethers } = hre;
@@ -23,14 +24,14 @@ describe("Loan engine (Phase 2): installments, stake lock, escrow, SafeRepay, in
     ctx = await deployGigLend(LOOSE);
     ({ pool, glp, loanManager: lm, vault, router } = ctx);
     [alice, bob, carol, platform] = ctx.users;
-    await pool.connect(alice).deposit({ value: ethers.parseEther("5") });
+    await depositFor(ctx, alice, ethers.parseEther("5"));
   });
 
   describe("Stake lock", function () {
     it("locked GLP cannot be withdrawn or transferred while a loan is open, and unlocks on repayment", async function () {
       await register(ctx, bob);
       await qualify(ctx, bob);
-      await pool.connect(bob).deposit({ value: ethers.parseEther("0.2") });
+      await depositFor(ctx, bob, ethers.parseEther("0.2"));
       const shares = await glp.balanceOf(bob.address);
 
       const { loanId } = await openLoan(ctx, bob, { kind: Kind.Unsecured, amount: ethers.parseEther("0.2") });
@@ -47,13 +48,13 @@ describe("Loan engine (Phase 2): installments, stake lock, escrow, SafeRepay, in
     it("an Unsecured loan needs 50% stake cover (borrower plus any guarantor)", async function () {
       await register(ctx, bob);
       await qualify(ctx, bob);
-      await pool.connect(bob).deposit({ value: ethers.parseEther("0.05") });
+      await depositFor(ctx, bob, ethers.parseEther("0.05"));
       await expect(
         lm.connect(bob).openLoan(Kind.Unsecured, ethers.parseEther("0.2"), 2, ethers.ZeroAddress, false)
       ).to.be.revertedWith("Insufficient stake cover");
 
       // A guarantor's pledge makes up the difference and is locked for the loan's life.
-      await pool.connect(carol).deposit({ value: ethers.parseEther("0.1") });
+      await depositFor(ctx, carol, ethers.parseEther("0.1"));
       const pledge = ethers.parseEther("0.06");
       await lm.connect(carol).offerGuarantee(bob.address, pledge);
       expect(await glp.lockedBalance(carol.address)).to.equal(pledge);
@@ -68,7 +69,7 @@ describe("Loan engine (Phase 2): installments, stake lock, escrow, SafeRepay, in
     });
 
     it("an unused guarantee can be withdrawn", async function () {
-      await pool.connect(carol).deposit({ value: ethers.parseEther("0.1") });
+      await depositFor(ctx, carol, ethers.parseEther("0.1"));
       await lm.connect(carol).offerGuarantee(bob.address, ethers.parseEther("0.05"));
       await lm.connect(carol).withdrawGuarantee(bob.address);
       expect(await glp.lockedBalance(carol.address)).to.equal(0n);

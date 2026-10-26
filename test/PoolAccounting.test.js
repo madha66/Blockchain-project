@@ -14,6 +14,7 @@ import {
   Option,
   LOOSE,
   VIRTUAL_OFFSET,
+  depositFor,
 } from "./helpers/fixture.js";
 
 const { ethers } = hre;
@@ -30,7 +31,7 @@ describe("Pool accounting (Phase 6): provisions, withdrawal queue, disclosures",
 
   async function unsecured(user, amount = E(0.4)) {
     await register(ctx, user);
-    await pool.connect(user).deposit({ value: amount });
+    await depositFor(ctx, user, amount);
     await qualify(ctx, user);
     const { loanId } = await openLoan(ctx, user, { kind: Kind.Unsecured, amount });
     return { loanId, loan: await lm.getLoan(loanId) };
@@ -38,7 +39,7 @@ describe("Pool accounting (Phase 6): provisions, withdrawal queue, disclosures",
 
   describe("poolValue() books losses in steps", function () {
     it("carries a late loan at 100% / 90% / 50% / 0% by stage and restores the carry when it cures", async function () {
-      await pool.connect(alice).deposit({ value: E(5) });
+      await depositFor(ctx, alice, E(5));
       const { loanId, loan } = await unsecured(bob);
       const P = loan.outstandingPrincipal;
       const cash = await pool.freeCash();
@@ -61,9 +62,9 @@ describe("Pool accounting (Phase 6): provisions, withdrawal queue, disclosures",
     });
 
     it("a partial cure that makes the loan current restores 100% carry", async function () {
-      await pool.connect(alice).deposit({ value: E(5) });
+      await depositFor(ctx, alice, E(5));
       await register(ctx, bob);
-      await pool.connect(bob).deposit({ value: E(0.4) });
+      await depositFor(ctx, bob, E(0.4));
       await qualify(ctx, bob);
       const { loanId } = await openLoan(ctx, bob, { kind: Kind.Unsecured, amount: E(0.4), n: 4 });
       const loan = await lm.getLoan(loanId);
@@ -80,7 +81,7 @@ describe("Pool accounting (Phase 6): provisions, withdrawal queue, disclosures",
     });
 
     it("a withdrawal during Significant gets the lower (provisioned) share price", async function () {
-      await pool.connect(alice).deposit({ value: E(5) });
+      await depositFor(ctx, alice, E(5));
       const { loan } = await unsecured(bob);
       await advanceTo(loan.nextDueDate + 12n * ctx.spd);
 
@@ -97,12 +98,12 @@ describe("Pool accounting (Phase 6): provisions, withdrawal queue, disclosures",
     });
 
     it("deposits during Significant also price off the provisioned value (no free ride on a recovery)", async function () {
-      await pool.connect(alice).deposit({ value: E(5) });
+      await depositFor(ctx, alice, E(5));
       const { loan } = await unsecured(bob);
       await advanceTo(loan.nextDueDate + 12n * ctx.spd);
       const supply = await glp.totalSupply();
       const pv = await pool.poolValue();
-      const receipt = await (await pool.connect(carol).deposit({ value: E(1) })).wait();
+      const receipt = await (await depositFor(ctx, carol, E(1))).wait();
       const minted = findEvent(receipt, pool, "Deposited").shares;
       expect(minted).to.equal((E(1) * (supply + VIRTUAL_OFFSET)) / (pv + VIRTUAL_OFFSET));
     });
@@ -110,8 +111,8 @@ describe("Pool accounting (Phase 6): provisions, withdrawal queue, disclosures",
 
   describe("Withdrawal queue", function () {
     it("pays a withdrawal run pro rata as cash returns, FIFO, without reverting", async function () {
-      await pool.connect(alice).deposit({ value: E(1) });
-      await pool.connect(carol).deposit({ value: E(1) });
+      await depositFor(ctx, alice, E(1));
+      await depositFor(ctx, carol, E(1));
       await register(ctx, bob);
       const { loanId } = await openLoan(ctx, bob, { amount: E(1.6) });
       expect(await pool.freeCash()).to.equal(E(0.4));
@@ -146,7 +147,7 @@ describe("Pool accounting (Phase 6): provisions, withdrawal queue, disclosures",
     });
 
     it("queued shares keep sharing gains and losses, and can be cancelled", async function () {
-      await pool.connect(alice).deposit({ value: E(1) });
+      await depositFor(ctx, alice, E(1));
       await register(ctx, bob);
       await openLoan(ctx, bob, { amount: E(0.9) });
       await pool.connect(alice).withdraw(E(1));
@@ -162,8 +163,8 @@ describe("Pool accounting (Phase 6): provisions, withdrawal queue, disclosures",
     it("bounds the number of waiting requests", async function () {
       ctx = await deployGigLend({ ...LOOSE, maxQueueLength: 1 });
       ({ pool, glp, loanManager: lm } = ctx);
-      await pool.connect(alice).deposit({ value: E(1) });
-      await pool.connect(carol).deposit({ value: E(1) });
+      await depositFor(ctx, alice, E(1));
+      await depositFor(ctx, carol, E(1));
       await register(ctx, bob);
       await openLoan(ctx, bob, { amount: E(1.8) });
       await pool.connect(alice).withdraw(E(1));
@@ -173,7 +174,7 @@ describe("Pool accounting (Phase 6): provisions, withdrawal queue, disclosures",
 
   describe("Disclosures", function () {
     it("reports loans by stage and arrears twice, with and without restructured loans", async function () {
-      await pool.connect(alice).deposit({ value: E(10) });
+      await depositFor(ctx, alice, E(10));
       await register(ctx, bob);
       await register(ctx, carol);
       const { loanId: a } = await openLoan(ctx, bob, { amount: E(0.1) });
@@ -199,7 +200,7 @@ describe("Pool accounting (Phase 6): provisions, withdrawal queue, disclosures",
     it("reports provisions, realised losses by month and the reserve", async function () {
       ctx = await deployGigLend({ ...LOOSE, unsecuredStakeCoverBps: 0 });
       ({ pool, glp, loanManager: lm, lens } = ctx);
-      await pool.connect(alice).deposit({ value: E(5) });
+      await depositFor(ctx, alice, E(5));
       await register(ctx, bob);
       await qualify(ctx, bob);
       const { loanId } = await openLoan(ctx, bob, { kind: Kind.Unsecured, amount: E(0.2) });

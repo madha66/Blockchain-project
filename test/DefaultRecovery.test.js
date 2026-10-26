@@ -17,6 +17,7 @@ import {
   DType,
   Option,
   LOOSE,
+  depositFor,
 } from "./helpers/fixture.js";
 
 const { ethers } = hre;
@@ -30,7 +31,7 @@ describe("Default and recovery (Phase 5)", function () {
     ctx = await deployGigLend(LOOSE);
     ({ pool, glp, loanManager: lm, defaultManager: dm, registry, score, router, reserve } = ctx);
     [alice, bob, carol, keeper, newWallet] = ctx.users;
-    await pool.connect(alice).deposit({ value: E(10) });
+    await depositFor(ctx, alice, E(10));
   });
 
   const toDefaultDay = async (loanId) => {
@@ -41,7 +42,7 @@ describe("Default and recovery (Phase 5)", function () {
   /** A seasoned member (one completed Builder loan, stake older than 30 days) with an Unsecured loan. */
   async function seasonedUnsecured(user, { amount = E(0.2), stake = E(0.15), fields = {} } = {}) {
     const memberId = await register(ctx, user, fields);
-    await pool.connect(user).deposit({ value: stake });
+    await depositFor(ctx, user, stake);
     await qualify(ctx, user);
     const { loanId } = await openLoan(ctx, user, { kind: Kind.Unsecured, amount });
     return { memberId, loanId };
@@ -56,7 +57,7 @@ describe("Default and recovery (Phase 5)", function () {
     it("dust-stake borrow-and-vanish leaves the attacker with no profit", async function () {
       const startBalance = await ethers.provider.getBalance(carol.address);
       await register(ctx, carol);
-      await pool.connect(carol).deposit({ value: 1000n }); // dust stake
+      await depositFor(ctx, carol, 1000n); // dust stake
 
       // Without the 50% cover (and a completed Builder loan) there is no Unsecured loan.
       await expect(
@@ -74,7 +75,7 @@ describe("Default and recovery (Phase 5)", function () {
     it("an Unsecured loan without enough stake cover is refused even after a Builder loan", async function () {
       await register(ctx, carol);
       await qualify(ctx, carol);
-      await pool.connect(carol).deposit({ value: 1000n });
+      await depositFor(ctx, carol, 1000n);
       await expect(
         lm.connect(carol).openLoan(Kind.Unsecured, E(0.2), 2, ethers.ZeroAddress, false)
       ).to.be.revertedWith("Insufficient stake cover");
@@ -179,9 +180,9 @@ describe("Default and recovery (Phase 5)", function () {
   describe("Waterfall", function () {
     it("takes borrower stake, then guarantor stake, then the reserve, then lenders", async function () {
       const memberId = await register(ctx, bob);
-      await pool.connect(bob).deposit({ value: E(0.05) });
+      await depositFor(ctx, bob, E(0.05));
       await qualify(ctx, bob);
-      await pool.connect(carol).deposit({ value: E(0.06) });
+      await depositFor(ctx, carol, E(0.06));
       await lm.connect(carol).offerGuarantee(bob.address, await glp.balanceOf(carol.address));
       await reserve.fund({ value: E(0.02) });
 
@@ -272,7 +273,7 @@ describe("Default and recovery (Phase 5)", function () {
       const { memberId } = await hardshipDefault();
       const claimBefore = await dm.claimOf(memberId);
       const deposit = E(0.02);
-      const receipt = await (await pool.connect(bob).deposit({ value: deposit })).wait();
+      const receipt = await (await depositFor(ctx, bob, deposit)).wait();
       const swept = findEvent(receipt, pool, "ResidualSwept");
       expect(swept.amount).to.equal(deposit / 2n);
       expect(findEvent(receipt, pool, "Deposited").amount).to.equal(deposit / 2n);

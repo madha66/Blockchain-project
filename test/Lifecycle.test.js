@@ -13,6 +13,7 @@ import {
   Stage,
   Option,
   LOOSE,
+  depositFor,
 } from "./helpers/fixture.js";
 
 const { ethers } = hre;
@@ -25,7 +26,7 @@ describe("Lifecycle (Phase 4): stages, late fee, collect, restructure, shock mod
     ctx = await deployGigLend(LOOSE);
     ({ pool, loanManager: lm, score, registry, router } = ctx);
     [alice, bob, keeper] = ctx.users;
-    await pool.connect(alice).deposit({ value: E(5) });
+    await depositFor(ctx, alice, E(5));
   });
 
   const atDay = async (loan, day) => advanceTo(loan.nextDueDate + BigInt(day) * ctx.spd);
@@ -38,7 +39,7 @@ describe("Lifecycle (Phase 4): stages, late fee, collect, restructure, shock mod
   async function unsecuredLoan(amount = E(0.2), n = 4) {
     const memberId = await register(ctx, bob);
     await qualify(ctx, bob);
-    await pool.connect(bob).deposit({ value: E(0.3) });
+    await depositFor(ctx, bob, E(0.3));
     const { loanId } = await openLoan(ctx, bob, { kind: Kind.Unsecured, amount, n });
     return { memberId, loanId, loan: await lm.getLoan(loanId) };
   }

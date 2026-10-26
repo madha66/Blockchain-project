@@ -15,6 +15,7 @@ import {
   DType,
   LOOSE,
   ONE_ETH,
+  depositFor,
 } from "./helpers/fixture.js";
 
 const { ethers } = hre;
@@ -33,9 +34,9 @@ describe("GigLend Economic Invariants & Edge-Case Audit Suite (migrated to V3)",
 
   describe("1. Virtual-Offset Behavior when Share Supply is Zero and Assets Remain", function () {
     it("handles new depositor when share supply returns to zero after inflation attack", async function () {
-      await pool.connect(bob).deposit({ value: 1n });
+      await depositFor(ctx, bob, 1n);
       await bob.sendTransaction({ to: await pool.getAddress(), value: ONE_ETH });
-      await pool.connect(alice).deposit({ value: ethers.parseEther("0.5") });
+      await depositFor(ctx, alice, ethers.parseEther("0.5"));
 
       await pool.connect(bob).withdraw(1n);
       await pool.connect(alice).withdraw(500_000n);
@@ -43,7 +44,7 @@ describe("GigLend Economic Invariants & Edge-Case Audit Suite (migrated to V3)",
       expect(await glp.totalSupply()).to.equal(0n);
       expect(await bal(await pool.getAddress())).to.equal(999_999_333_333_444_445n);
 
-      await pool.connect(charlie).deposit({ value: ONE_ETH });
+      await depositFor(ctx, charlie, ONE_ETH);
       const charlieShares = await glp.balanceOf(charlie.address);
       expect(charlieShares).to.equal(1_000_000n);
 
@@ -55,13 +56,13 @@ describe("GigLend Economic Invariants & Edge-Case Audit Suite (migrated to V3)",
 
     it("reverts if deposit amount is too small to mint at least 1 share when large assets exist with zero shares", async function () {
       await bob.sendTransaction({ to: await pool.getAddress(), value: ONE_ETH });
-      await expect(pool.connect(alice).deposit({ value: 100n })).to.be.revertedWith("Zero shares minted");
+      await expect(depositFor(ctx, alice, 100n)).to.be.revertedWith("Zero shares minted");
     });
   });
 
   describe("2. Liquidity Invariant: Withdrawals Never Exceed Free Cash", function () {
     it("queues the unpaid part of a withdrawal instead of draining or reverting, and pays it as cash returns", async function () {
-      await pool.connect(alice).deposit({ value: ONE_ETH });
+      await depositFor(ctx, alice, ONE_ETH);
       await register(ctx, bob);
       const { loanId } = await openLoan(ctx, bob, { amount: ethers.parseEther("0.5") });
       expect(await pool.freeCash()).to.equal(ethers.parseEther("0.5"));
@@ -87,9 +88,9 @@ describe("GigLend Economic Invariants & Edge-Case Audit Suite (migrated to V3)",
 
   describe("3. Simultaneous Borrowing and Utilization Cap Enforcement", function () {
     it("strictly limits total simultaneous active borrowings to 90% of pool capital", async function () {
-      await pool.connect(owner).deposit({ value: ONE_ETH });
+      await depositFor(ctx, owner, ONE_ETH);
       for (const u of [bob, charlie, dave]) {
-        await pool.connect(u).deposit({ value: ethers.parseEther("0.1") });
+        await depositFor(ctx, u, ethers.parseEther("0.1"));
         await register(ctx, u);
       }
       // Capital = 1.3 ETH; 90% cap = 1.17 ETH.
@@ -107,8 +108,8 @@ describe("GigLend Economic Invariants & Edge-Case Audit Suite (migrated to V3)",
 
   describe("4. Accounting Transitions: Repayment, Reserve, Default & Recovery", function () {
     it("correctly executes the entire repayment lifecycle with full invariant assertions", async function () {
-      await pool.connect(owner).deposit({ value: ethers.parseEther("2.0") });
-      await pool.connect(alice).deposit({ value: ethers.parseEther("0.5") });
+      await depositFor(ctx, owner, ethers.parseEther("2.0"));
+      await depositFor(ctx, alice, ethers.parseEther("0.5"));
       await register(ctx, alice);
       expect(await glp.totalSupply()).to.equal(ethers.parseEther("2.5"));
 
@@ -137,8 +138,8 @@ describe("GigLend Economic Invariants & Edge-Case Audit Suite (migrated to V3)",
     });
 
     it("verifies default settlement with stake set-off, residual claim and full recovery", async function () {
-      await pool.connect(owner).deposit({ value: ethers.parseEther("2.0") });
-      await pool.connect(alice).deposit({ value: ethers.parseEther("0.1") });
+      await depositFor(ctx, owner, ethers.parseEther("2.0"));
+      await depositFor(ctx, alice, ethers.parseEther("0.1"));
       const aliceId = await register(ctx, alice);
       await qualify(ctx, alice);
 

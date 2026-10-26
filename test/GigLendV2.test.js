@@ -17,6 +17,7 @@ import {
   LOOSE,
   ONE_ETH,
   VIRTUAL_OFFSET,
+  depositFor,
 } from "./helpers/fixture.js";
 
 const { ethers } = hre;
@@ -39,20 +40,20 @@ describe("GigLend V2 Core Lifecycle & Accounting Test Suite (migrated to V3)", f
 
   describe("Group 1: Virtual-Offset Share Valuation & Inflation Attack Protection", function () {
     it("mints 1:1 shares on initial deposit (with virtual offset)", async function () {
-      await pool.connect(alice).deposit({ value: ONE_ETH });
+      await depositFor(ctx, alice, ONE_ETH);
       expect(await glp.balanceOf(alice.address)).to.equal(ONE_ETH);
       expect(await glp.totalSupply()).to.equal(ONE_ETH);
       expect(await balanceOf(await poolAddr())).to.equal(ONE_ETH);
     });
 
     it("resists ERC-4626 inflation/donation attack with exact BigInt accounting", async function () {
-      await pool.connect(bob).deposit({ value: 1n });
+      await depositFor(ctx, bob, 1n);
       expect(await glp.balanceOf(bob.address)).to.equal(1n);
 
       await bob.sendTransaction({ to: await poolAddr(), value: ONE_ETH });
       expect(await balanceOf(await poolAddr())).to.equal(ONE_ETH + 1n);
 
-      await pool.connect(alice).deposit({ value: ethers.parseEther("0.5") });
+      await depositFor(ctx, alice, ethers.parseEther("0.5"));
       expect(await glp.balanceOf(alice.address)).to.equal(500_000n);
       expect(await glp.totalSupply()).to.equal(500_001n);
 
@@ -68,7 +69,7 @@ describe("GigLend V2 Core Lifecycle & Accounting Test Suite (migrated to V3)", f
 
   describe("Group 2: Same-Block Utilization Concurrency Race", function () {
     it("mines both borrows in the same block, succeeds first, and proves second reverts with 90% cap", async function () {
-      await pool.connect(alice).deposit({ value: ONE_ETH });
+      await depositFor(ctx, alice, ONE_ETH);
       await register(ctx, bob);
       await register(ctx, charlie);
       const amount = ethers.parseEther("0.5");
@@ -109,7 +110,7 @@ describe("GigLend V2 Core Lifecycle & Accounting Test Suite (migrated to V3)", f
 
   describe("Group 3: Sequential Multi-Block Utilization Persistence", function () {
     it("enforces 90% cap across subsequent blocks while active loan is outstanding", async function () {
-      await pool.connect(alice).deposit({ value: ONE_ETH });
+      await depositFor(ctx, alice, ONE_ETH);
       await register(ctx, bob);
       await register(ctx, charlie);
       await openLoan(ctx, bob, { amount: ethers.parseEther("0.5") });
@@ -126,7 +127,7 @@ describe("GigLend V2 Core Lifecycle & Accounting Test Suite (migrated to V3)", f
 
   describe("Group 4: Interest, Rate Locking & Repayment Waterfall", function () {
     it("locks interest rate at origination based on post-borrow utilization and credit surcharge", async function () {
-      await pool.connect(alice).deposit({ value: ONE_ETH });
+      await depositFor(ctx, alice, ONE_ETH);
       await register(ctx, bob);
       // Utilisation 50% → 400 + 5000·500/8000 = 712 bps; new member score 550 → +200 bps.
       const { loanId } = await openLoan(ctx, bob, { amount: ethers.parseEther("0.5") });
@@ -138,7 +139,7 @@ describe("GigLend V2 Core Lifecycle & Accounting Test Suite (migrated to V3)", f
     });
 
     it("amortises simple interest and splits interest into 10% reserve and 90% pool cash", async function () {
-      await pool.connect(alice).deposit({ value: ONE_ETH });
+      await depositFor(ctx, alice, ONE_ETH);
       await register(ctx, bob);
       const amount = ethers.parseEther("0.4");
       const { loanId } = await openLoan(ctx, bob, { amount });
@@ -168,7 +169,7 @@ describe("GigLend V2 Core Lifecycle & Accounting Test Suite (migrated to V3)", f
     });
 
     it("pays interest before principal on a partial payment", async function () {
-      await pool.connect(alice).deposit({ value: ONE_ETH });
+      await depositFor(ctx, alice, ONE_ETH);
       await register(ctx, bob);
       const { loanId } = await openLoan(ctx, bob, { amount: ethers.parseEther("0.4") });
       const loan = await lm.getLoan(loanId);
@@ -182,7 +183,7 @@ describe("GigLend V2 Core Lifecycle & Accounting Test Suite (migrated to V3)", f
     });
 
     it("refunds overpayment, releases Builder escrow and cleans up loan state on full repayment", async function () {
-      await pool.connect(alice).deposit({ value: ONE_ETH });
+      await depositFor(ctx, alice, ONE_ETH);
       await register(ctx, bob);
       const amount = ethers.parseEther("0.2");
       const { loanId } = await openLoan(ctx, bob, { amount });
@@ -207,7 +208,7 @@ describe("GigLend V2 Core Lifecycle & Accounting Test Suite (migrated to V3)", f
 
   describe("Group 5: Default Impairment & Fair-Price Stake Waterfall", function () {
     it("reverts if default is marked before the default day", async function () {
-      await pool.connect(alice).deposit({ value: ONE_ETH });
+      await depositFor(ctx, alice, ONE_ETH);
       await register(ctx, bob);
       const { loanId } = await openLoan(ctx, bob, { amount: ethers.parseEther("0.2") });
 
@@ -222,7 +223,7 @@ describe("GigLend V2 Core Lifecycle & Accounting Test Suite (migrated to V3)", f
     // Bob holds exactly the shares needed to cover the whole debt at the fair share price
     // (impaired loan excluded), or one wei-share fewer.
     async function thresholdFixture(oneBelow) {
-      await pool.connect(alice).deposit({ value: ethers.parseEther("10.9") });
+      await depositFor(ctx, alice, ethers.parseEther("10.9"));
       const bobId = await register(ctx, bob);
       await qualify(ctx, bob);
 
@@ -274,7 +275,7 @@ describe("GigLend V2 Core Lifecycle & Accounting Test Suite (migrated to V3)", f
       ({ pool, glp, loanManager: lm, defaultManager: dm, reserve } = ctx);
       [alice, bob, charlie] = ctx.users;
 
-      await pool.connect(alice).deposit({ value: ONE_ETH });
+      await depositFor(ctx, alice, ONE_ETH);
       const bobId = await register(ctx, bob);
       await qualify(ctx, bob);
       expect(await glp.balanceOf(bob.address)).to.equal(0n);
@@ -310,7 +311,7 @@ describe("GigLend V2 Core Lifecycle & Accounting Test Suite (migrated to V3)", f
       ctx = await deployGigLend({ ...LOOSE, unsecuredStakeCoverBps: 0 });
       ({ pool, glp, loanManager: lm, defaultManager: dm, reserve } = ctx);
       [alice, bob, charlie] = ctx.users;
-      await pool.connect(alice).deposit({ value: ONE_ETH });
+      await depositFor(ctx, alice, ONE_ETH);
       bobId = await register(ctx, bob);
       await qualify(ctx, bob);
       ({ loanId } = await openLoan(ctx, bob, { kind: Kind.Unsecured, amount: ethers.parseEther("0.3") }));
@@ -364,10 +365,10 @@ describe("GigLend V2 Core Lifecycle & Accounting Test Suite (migrated to V3)", f
 
   describe("Group 7: Penalty-free exit (replaces the legacy borrow(amount) ABI)", function () {
     it("returns the principal within 1 day with no interest or fees", async function () {
-      await pool.connect(alice).deposit({ value: ONE_ETH });
+      await depositFor(ctx, alice, ONE_ETH);
       await register(ctx, bob);
       await qualify(ctx, bob);
-      await pool.connect(bob).deposit({ value: ethers.parseEther("0.2") });
+      await depositFor(ctx, bob, ethers.parseEther("0.2"));
       const P = ethers.parseEther("0.2");
       const { loanId } = await openLoan(ctx, bob, { kind: Kind.Unsecured, amount: P });
       expect(await glp.lockedBalance(bob.address)).to.be.greaterThan(0n);
@@ -380,7 +381,7 @@ describe("GigLend V2 Core Lifecycle & Accounting Test Suite (migrated to V3)", f
     });
 
     it("closes the exit window after penaltyFreeExitDays", async function () {
-      await pool.connect(alice).deposit({ value: ONE_ETH });
+      await depositFor(ctx, alice, ONE_ETH);
       await register(ctx, bob);
       const { loanId } = await openLoan(ctx, bob, { amount: ethers.parseEther("0.1") });
       await advanceDays(ctx, 2);

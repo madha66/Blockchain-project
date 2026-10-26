@@ -8,12 +8,12 @@
 //
 // Moves chain time forward by about 130 policy days. Members registered through the
 // backend are reused; otherwise the script signs attestations with the demo attester key
-// (Hardhat account #9, the same key the backend uses).
+// (Hardhat account #19, the same issuer key the backend uses).
 import { ethers } from "ethers";
 import { contract, STAGES, DTYPES } from "./timeTravel.js";
 
 const RPC_URL = process.env.RPC_URL || "http://127.0.0.1:8545";
-const ATTESTER_KEY = process.env.ATTESTER_PRIVATE_KEY || "0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6";
+import { issuerWallet } from "./lib/attest.js";
 const ID_PEPPER = process.env.ID_PEPPER || "change-me-pepper";
 const E = (v) => ethers.parseEther(String(v));
 const fmt = (wei) => `${Number(ethers.formatEther(wei)).toFixed(4)} ETH`;
@@ -67,7 +67,7 @@ async function register(wallet, pan) {
       { name: "expiry", type: "uint64" },
     ],
   };
-  const signature = await new ethers.Wallet(ATTESTER_KEY).signTypedData(domain, types, attestation);
+  const signature = await issuerWallet().signTypedData(domain, types, attestation);
   await (await registry.register(attestation, signature)).wait();
   return registry.memberOf(address);
 }
@@ -91,6 +91,8 @@ async function main() {
   const pool = contract("LendingPool", lender);
 
   console.log("\n1. Pool liquidity");
+  // Deposits need a verified identity; seed:demo normally registers the lender (account #0).
+  await register(lender, "ADMIN0000Z");
   if ((await pool.freeCash()) < E(5)) {
     await (await pool.deposit({ value: E(20) })).wait();
     console.log("   Lender deposited 20 ETH");

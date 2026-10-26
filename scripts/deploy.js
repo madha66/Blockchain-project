@@ -1,15 +1,21 @@
 import hre from "hardhat";
 import fs from "fs";
 import path from "path";
+import { ethers } from "ethers";
 import { deployProtocol } from "./lib/protocol.js";
+import { issuerWallet, registerWithIssuer } from "./lib/attest.js";
 import { INR_PER_ETH_DEMO } from "./config.js";
 
 const FRONTEND_CONTRACTS_DIR = path.resolve("frontend/src/contracts");
 const BACKEND_ENV_PATH = path.resolve("backend/.env");
 const BACKEND_ENV_EXAMPLE = path.resolve("backend/.env.example");
 
-// Hardhat account #9 — the backend's mock attester (backend/.env.example ATTESTER_PRIVATE_KEY).
-const ATTESTER_ADDRESS = process.env.ATTESTER_ADDRESS || "0xa0Ee7A142d267C1f36714E4a8F75612F20a79720";
+// Trusted identity issuer: Hardhat account #19 locally (backend ISSUER_PRIVATE_KEY).
+const ISSUER_ADDRESS = issuerWallet().address;
+
+// Demo lenders and keepers registered at deploy time. Accounts #0, #3, #4, #5, #7 are signed up
+// through the backend by seed:demo, and #10-#18 are kept free for manual sign-up tests.
+const DEMO_REGISTRATIONS = [1, 2, 6, 8];
 
 const BACKEND_ENV_KEYS = {
   IdentityRegistry: "IDENTITY_REGISTRY_ADDRESS",
@@ -20,14 +26,17 @@ const BACKEND_ENV_KEYS = {
   MockPayoutRouter: "PAYOUT_ROUTER_ADDRESS",
   PolicyConfig: "POLICY_CONFIG_ADDRESS",
   CreditScore: "CREDIT_SCORE_ADDRESS",
+  GLPToken: "GLP_TOKEN_ADDRESS",
+  ReserveFund: "RESERVE_FUND_ADDRESS",
+  DefaulterGovernance: "GOVERNANCE_ADDRESS",
 };
 
 async function deployAll() {
   const [deployer] = await hre.ethers.getSigners();
   console.log("Deploying with:", deployer.address);
-  console.log("Attester:      ", ATTESTER_ADDRESS);
+  console.log("Issuer:        ", ISSUER_ADDRESS);
   // Locally the deployer holds ADMIN_ROLE and DISPUTE_ROLE. Production: a Safe multisig.
-  const contracts = await deployProtocol(hre.ethers, { admin: deployer, attester: ATTESTER_ADDRESS, log: true });
+  const contracts = await deployProtocol(hre.ethers, { admin: deployer, attester: ISSUER_ADDRESS, log: true });
   const byName = {
     PolicyConfig: contracts.config,
     IdentityRegistry: contracts.registry,
@@ -41,6 +50,7 @@ async function deployAll() {
     RiskEngine: contracts.risk,
     DefaultManager: contracts.defaultManager,
     PortfolioLens: contracts.lens,
+    DefaulterGovernance: contracts.governance,
   };
   const addresses = {};
   for (const [name, c] of Object.entries(byName)) addresses[name] = await c.getAddress();
@@ -82,7 +92,17 @@ function syncBackendEnv(addresses, chainId) {
 }
 
 async function main() {
-  const { addresses } = await deployAll();
+  const { contracts, addresses } = await deployAll();
+  const signers = await hre.ethers.getSigners();
+  for (const index of DEMO_REGISTRATIONS) {
+    const signer = signers[index];
+    if (!signer) continue;
+    const memberId = await registerWithIssuer(contracts.IdentityRegistry, signer, {
+      idHash: ethers.id(`giglend-demo-account-${index}`),
+      incomeTierWei: ethers.parseEther("1"),
+    });
+    console.log(`Registered demo account #${index} ${signer.address} as member #${memberId}`);
+  }
   const { chainId } = await hre.ethers.provider.getNetwork();
   syncFrontend(addresses, Number(chainId));
   syncBackendEnv(addresses, Number(chainId));

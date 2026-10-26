@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import { config } from "../config.js";
-import { prisma } from "../db.js";
+import mongoose from "mongoose";
+import { User } from "../models.js";
 
 export const SESSION_COOKIE = "gl_session";
 
@@ -38,7 +39,7 @@ export const requireSession = (...scopes) => async (req, res, next) => {
   if (scopes.length && !scopes.includes(payload.scope)) {
     return res.status(403).json({ error: "SESSION_SCOPE", scope: payload.scope });
   }
-  const user = await prisma.user.findUnique({ where: { id: payload.sub } });
+  const user = mongoose.isValidObjectId(payload.sub) ? await User.findById(payload.sub) : null;
   if (!user) return res.status(401).json({ error: "SESSION_INVALID" });
   req.user = user;
   req.sessionScope = payload.scope;
@@ -47,7 +48,7 @@ export const requireSession = (...scopes) => async (req, res, next) => {
 
 export const requireAdmin = (req, res, next) => {
   const byWallet = req.user?.wallet && config.adminWallets.includes(req.user.wallet);
-  if (!req.user?.isAdmin && !byWallet) return res.status(403).json({ error: "ADMIN_ONLY" });
+  if (req.user?.role !== "admin" && !byWallet) return res.status(403).json({ error: "ADMIN_ONLY" });
   next();
 };
 

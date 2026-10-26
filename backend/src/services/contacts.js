@@ -1,9 +1,9 @@
-import { prisma } from "../db.js";
+import { Contact, Identity } from "../models.js";
 import { STAFF_CONTACTS } from "../config.js";
 
 export async function seedContacts() {
   for (const c of STAFF_CONTACTS) {
-    await prisma.contact.upsert({ where: { name: c.name }, update: {}, create: c });
+    await Contact.updateOne({ name: c.name }, { $setOnInsert: c }, { upsert: true });
   }
 }
 
@@ -13,7 +13,10 @@ export async function seedContacts() {
  */
 export async function pickContact() {
   await seedContacts();
-  const contacts = await prisma.contact.findMany({ include: { _count: { select: { identities: true } } } });
-  contacts.sort((a, b) => a._count.identities - b._count.identities || a.name.localeCompare(b.name));
+  const contacts = await Contact.find().lean();
+  const counts = new Map(
+    (await Identity.aggregate([{ $group: { _id: "$contact", n: { $sum: 1 } } }])).map((r) => [String(r._id), r.n])
+  );
+  contacts.sort((a, b) => (counts.get(String(a._id)) ?? 0) - (counts.get(String(b._id)) ?? 0) || a.name.localeCompare(b.name));
   return contacts[0];
 }

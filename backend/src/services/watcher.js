@@ -1,5 +1,5 @@
 import { ethers } from "ethers";
-import { prisma } from "../db.js";
+import { PayoutRecord, SweepRecord, User } from "../models.js";
 import { config } from "../config.js";
 import { contractFor } from "./contracts.js";
 import { enqueueNotice, flushQueue } from "./notifier.js";
@@ -12,8 +12,9 @@ const dateOf = (ts) => new Date(Number(ts) * 1000).toISOString().slice(0, 10);
 /**
  * Chain watcher → early-warning signals → inbox notices. Loan timing uses chain time (so
  * time-travel demos work); contact hours use wall-clock time in the member's time zone.
+ * Payout and sweep events are mirrored by the indexer, which runs first on every tick.
  */
-export function createWatcher({ provider } = {}) {
+export function createWatcher({ provider, indexer } = {}) {
   provider ??= new ethers.JsonRpcProvider(config.rpcUrl, undefined, { staticNetwork: true });
   const keeper = process.env.DEMO_PRIVATE_KEY ? new ethers.Wallet(process.env.DEMO_PRIVATE_KEY, provider) : null;
   const c = {
@@ -24,51 +25,6 @@ export function createWatcher({ provider } = {}) {
     config: contractFor("PolicyConfig", provider),
   };
   const ready = () => c.registry && c.loans && c.router;
-
-  async function indexEvents() {
-    const head = await provider.getBlockNumber();
-    const cursor = await prisma.chainCursor.findUnique({ where: { id: "events" } });
-    const from = cursor ? cursor.lastBlock + 1 : 0;
-    if (from > head) return;
-
-    const blockTs = new Map();
-    const tsOf = async (n) => {
-      if (!blockTs.has(n)) blockTs.set(n, (await provider.getBlock(n)).timestamp);
-      return blockTs.get(n);
-    };
-
-    for (const ev of await c.router.queryFilter(c.router.filters.PayoutRouted(), from, head)) {
-      const id = `${ev.transactionHash}-${ev.index}`;
-      await prisma.payoutRecord.upsert({
-        where: { id },
-        update: {},
-        create: {
-          id,
-          wallet: ev.args.worker.toLowerCase(),
-          amountWei: ev.args.amount.toString(),
-          sweptWei: ev.args.sweptToLoan.toString(),
-          chainTs: await tsOf(ev.blockNumber),
-        },
-      });
-    }
-    for (const ev of await c.loans.queryFilter(c.loans.filters.SweepApplied(), from, head)) {
-      const id = `${ev.transactionHash}-${ev.index}`;
-      const loan = await c.loans.getLoan(ev.args.loanId);
-      await prisma.sweepRecord.upsert({
-        where: { id },
-        update: {},
-        create: {
-          id,
-          wallet: loan.borrower.toLowerCase(),
-          loanId: Number(ev.args.loanId),
-          amountWei: ev.args.amount.toString(),
-          expectedWei: ev.args.expected.toString(),
-          chainTs: await tsOf(ev.blockNumber),
-        },
-      });
-    }
-    await prisma.chainCursor.upsert({ where: { id: "events" }, update: { lastBlock: head }, create: { id: "events", lastBlock: head } });
-  }
 
   async function checkUser(user, chainNow, spd) {
     const memberId = await c.registry.memberOf(user.wallet);
@@ -99,8 +55,8 @@ export function createWatcher({ provider } = {}) {
     if (stage === "Active") {
       const window = preDueWindow(Number(loan.nextDueDate), chainNow, spd);
       if (window) {
-        const payouts = await prisma.payoutRecord.findMany({ where: { wallet: user.wallet } });
-        const sweeps = await prisma.sweepRecord.findMany({ where: { loanId: Number(loanId) } });
+        const payouts = await PayoutRecord.find({ wallet: user.wallet }).lean();
+        const sweeps = await SweepRecord.find({ loanId: Number(loanId) }).lean();
         if (payoutsFalling(payouts.map((p) => ({ amount: p.amountWei, ts: p.chainTs })), chainNow, spd)) {
           await enqueueNotice({ userId: user.id, kind: "payouts_falling", facts, dedupeKey: key("payouts_falling") });
         }
@@ -130,7 +86,7 @@ export function createWatcher({ provider } = {}) {
     } else if (stage === "Significant") {
       await enqueueNotice({ userId: user.id, kind: "significant", facts, dedupeKey: key("significant") });
       if (loan.guarantor !== ethers.ZeroAddress) {
-        const guarantor = await prisma.user.findUnique({ where: { wallet: loan.guarantor.toLowerCase() } });
+        const guarantor = await User.findOne({ wallet: loan.guarantor.toLowerCase() });
         if (guarantor) {
           await enqueueNotice({
             userId: guarantor.id,
@@ -146,10 +102,10 @@ export function createWatcher({ provider } = {}) {
   /** One pass: index events, evaluate every linked member, flush queued notices. */
   async function tick(now = new Date()) {
     if (!ready()) return { skipped: "contracts not configured" };
-    await indexEvents();
+    const indexed = indexer ? await indexer.tick().catch((err) => ({ error: err.shortMessage || err.message })) : null;
     const chainNow = (await provider.getBlock("latest")).timestamp;
     const spd = c.config ? Number(await c.config.secondsPerDay()) : 86400;
-    const users = await prisma.user.findMany({ where: { wallet: { not: null } } });
+    const users = await User.find({ wallet: { $type: "string" } });
     for (const user of users) {
       try {
         await checkUser(user, chainNow, spd);
@@ -158,7 +114,7 @@ export function createWatcher({ provider } = {}) {
       }
     }
     const flushed = await flushQueue(now);
-    return { users: users.length, flushed };
+    return { users: users.length, flushed, indexer: indexed };
   }
 
   return { tick };

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { prisma } from "../db.js";
+import { User } from "../models.js";
 import { ah, clearSession, requireSession, setSession, SESSION_COOKIE } from "../middleware/auth.js";
 import { issueOtp, verifyOtp } from "../services/otp.js";
 import { createNonce, verifySiwe } from "../services/siwe.js";
@@ -20,7 +20,7 @@ const loginSchema = z
 
 const findByIdentifier = (identifier) => {
   const id = identifier.trim().toLowerCase();
-  return prisma.user.findFirst({ where: { OR: [{ email: id }, { phone: identifier.replace(/\s+/g, "") }] } });
+  return User.findOne({ $or: [{ email: id }, { phone: identifier.replace(/\s+/g, "") }] });
 };
 
 export function authRoutes() {

@@ -1,15 +1,15 @@
-import { execSync } from "child_process";
 import fs from "fs";
+import { MongoMemoryServer } from "mongodb-memory-server";
 
 /**
- * Creates a fresh SQLite test database from the Prisma schema before the run.
+ * Starts an in-memory MongoDB for the run. Tests never touch the Atlas cluster.
  */
-export default function setup() {
-  execSync("npx prisma db push --force-reset --skip-generate", {
-    stdio: "ignore",
-    env: { ...process.env, DATABASE_URL: "file:./test.db" },
-  });
-  return () => {
+export default async function setup({ provide }) {
+  // First start on Windows can be slow (antivirus scanning the binary).
+  const mongod = await MongoMemoryServer.create({ instance: { launchTimeout: 90000, storageEngine: "wiredTiger" } });
+  provide("mongoUri", mongod.getUri());
+  return async () => {
+    await mongod.stop();
     fs.rmSync("test-uploads", { recursive: true, force: true });
   };
 }

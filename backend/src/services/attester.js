@@ -16,7 +16,9 @@ export const ATTESTATION_TYPES = {
   ],
 };
 
-export const attesterWallet = () => new ethers.Wallet(config.attesterKey);
+// Trusted issuer (Hardhat account #19 locally). Its address holds ATTESTER_ROLE on IdentityRegistry.
+export const issuerWallet = () => new ethers.Wallet(config.issuerKey);
+export const attesterWallet = issuerWallet;
 
 export function attestationDomain(chainId = config.chainId, verifyingContract = config.addresses.IdentityRegistry) {
   return {
@@ -28,7 +30,7 @@ export function attestationDomain(chainId = config.chainId, verifyingContract = 
 }
 
 /**
- * Signs an EIP-712 MemberAttestation with the attester key. The user submits it to
+ * Signs an EIP-712 MemberAttestation with the issuer key. The user submits it to
  * IdentityRegistry.register(attestation, sig).
  */
 export async function signAttestation(fields, { chainId, verifyingContract } = {}) {

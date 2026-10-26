@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterAll } from "vitest";
-import { prisma } from "../src/db.js";
+import { describe, it, expect, beforeEach } from "vitest";
+import { Identity, Notification, User } from "../src/models.js";
 import { GRIEVANCE_LINE } from "../src/config.js";
 import {
   isWithinContactHours,
@@ -15,25 +15,30 @@ import { pickContact } from "../src/services/contacts.js";
 import { resetDb } from "./helpers.js";
 
 beforeEach(resetDb);
-afterAll(() => prisma.$disconnect());
 
 // 2026-10-26 in India (UTC+05:30)
 const ist = (hh, mm = 0) => new Date(Date.UTC(2026, 9, 26, hh, mm) - 330 * 60 * 1000);
 
 async function makeMember() {
   const contact = await pickContact();
-  const identity = await prisma.identity.create({
-    data: { idHash: `0x${Math.random().toString(16).slice(2)}`, panMasked: "ABxxxxxx4F", aadhaarRef: "1234", clusterId: "0x1", cohortId: 202643, contactId: contact.id },
+  const identity = await Identity.create({
+    identityHash: `0x${Math.random().toString(16).slice(2)}`,
+    salt: "00",
+    identifierType: "pan",
+    identifierEnc: "x",
+    identifierMasked: "ABxxxxxx4F",
+    aadhaarRef: "1234",
+    clusterId: "0x1",
+    cohortId: 202643,
+    contact: contact._id,
   });
-  const user = await prisma.user.create({
-    data: {
-      name: "Ravi",
-      email: `ravi${Math.random()}@example.test`,
-      phone: `9${Math.floor(Math.random() * 1e9)}`.padEnd(10, "0"),
-      passwordHash: "x",
-      identityId: identity.id,
-      timezone: "Asia/Kolkata",
-    },
+  const user = await User.create({
+    name: "Ravi",
+    email: `ravi${Math.random()}@example.test`,
+    phone: `9${Math.floor(Math.random() * 1e9)}`.padEnd(10, "0"),
+    passwordHash: "x",
+    identity: identity._id,
+    timezone: "Asia/Kolkata",
   });
   return { user, contactName: contact.name };
 }
@@ -58,7 +63,7 @@ describe("Notifier contact rules", () => {
 
     expect(await flushQueue(ist(6, 0))).toBe(0);
     expect(await flushQueue(new Date(notice.scheduledFor.getTime() + 60 * 1000))).toBe(1);
-    const after = await prisma.notification.findUnique({ where: { id: notice.id } });
+    const after = await Notification.findById(notice._id);
     expect(after.status).toBe("sent");
   });
 
@@ -100,7 +105,7 @@ describe("Notifier contact rules", () => {
     const { user } = await makeMember();
     await enqueueNotice({ userId: user.id, kind: "onset", facts: "x", now: ist(9), dedupeKey: "loan-1-inst-1-onset" });
     await enqueueNotice({ userId: user.id, kind: "onset", facts: "x", now: ist(9), dedupeKey: "loan-1-inst-1-onset" });
-    expect(await prisma.notification.count()).toBe(1);
+    expect(await Notification.countDocuments()).toBe(1);
   });
 
   it("keeps messages for at least 6 months", async () => {

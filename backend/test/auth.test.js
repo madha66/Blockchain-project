@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach, afterAll } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import { ethers } from "ethers";
-import { prisma } from "../src/db.js";
+import { AuditLog, Identity, Otp, User } from "../src/models.js";
 import { verifyOtp, issueOtp, OTP_TTL_MS } from "../src/services/otp.js";
 import { idHashFor } from "../src/services/identity.js";
 import { ATTESTATION_TYPES } from "../src/services/attester.js";
@@ -18,7 +18,6 @@ import {
 
 beforeEach(resetDb);
 afterEach(closeServers);
-afterAll(() => prisma.$disconnect());
 
 describe("OTP flow", () => {
   it("verifies the signup OTP once and rejects a wrong code", async () => {
@@ -40,16 +39,14 @@ describe("OTP flow", () => {
   });
 
   it("stores only a hash of the OTP and expires it after 5 minutes", async () => {
-    const user = await prisma.user.create({
-      data: { name: "X", email: "x@example.test", phone: "9000000001", passwordHash: "x" },
-    });
-    const code = await issueOtp(user.id, "login");
-    const row = await prisma.otp.findFirst({ where: { userId: user.id } });
+    const user = await User.create({ name: "X", email: "x@example.test", phone: "9000000001", passwordHash: "x" });
+    const code = await issueOtp(user._id, "login");
+    const row = await Otp.findOne({ user: user._id });
     expect(row.codeHash).not.toContain(code);
     expect(row.expiresAt.getTime() - row.createdAt.getTime()).toBeLessThanOrEqual(OTP_TTL_MS + 1000);
 
-    await prisma.otp.update({ where: { id: row.id }, data: { expiresAt: new Date(Date.now() - 1) } });
-    expect((await verifyOtp(user.id, "login", code)).reason).toBe("OTP_EXPIRED");
+    await Otp.updateOne({ _id: row._id }, { expiresAt: new Date(Date.now() - 1) });
+    expect((await verifyOtp(user._id, "login", code)).reason).toBe("OTP_EXPIRED");
   });
 
   it("rejects duplicate email or phone at signup", async () => {
@@ -66,7 +63,7 @@ describe("OTP flow", () => {
     const { app } = makeApp();
     const account = uniqueAccount();
     await request(app).post("/api/signup/account").send(account).expect(201);
-    const events = await prisma.authEvent.findMany();
+    const events = await AuditLog.find({ category: "auth" }).lean();
     expect(events.length).toBeGreaterThan(0);
     for (const e of events) {
       expect(JSON.stringify(e)).not.toContain(account.email);
@@ -190,9 +187,9 @@ describe("Signup wizard, identity and attestation", () => {
     expect(second.kyc.status).toBe(200);
     expect(second.kyc.body.inherited).toBe(true);
 
-    const identities = await prisma.identity.findMany({ where: { idHash: idHashFor("PQRSX6789Z") } });
+    const identities = await Identity.find({ identityHash: idHashFor("PQRSX6789Z") });
     expect(identities).toHaveLength(1);
-    const users = await prisma.user.findMany({ where: { identityId: identities[0].id } });
+    const users = await User.find({ identity: identities[0]._id });
     expect(users.length).toBe(2);
   });
 
@@ -205,7 +202,7 @@ describe("Signup wizard, identity and attestation", () => {
     expect(res.body.error).toBe("OPEN_LOAN");
   });
 
-  it("signs an EIP-712 attestation with the attester key after consent", async () => {
+  it("signs an EIP-712 attestation with the issuer key after consent", async () => {
     const { app } = makeApp();
     const wallet = newWallet();
     const { agent } = await completeSignup(app, wallet);
@@ -221,7 +218,8 @@ describe("Signup wizard, identity and attestation", () => {
     expect(attestation.declaredDebtWei).toBe(ethers.parseEther("0.015").toString());
 
     const signer = ethers.verifyTypedData(domain, ATTESTATION_TYPES, attestation, signature);
-    expect(signer).toBe(new ethers.Wallet(process.env.ATTESTER_PRIVATE_KEY || "0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6").address);
+    // Issuer: Hardhat account #19 (ISSUER_PRIVATE_KEY).
+    expect(signer).toBe("0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199");
 
     const profile = await agent.get("/api/profile").expect(200);
     expect(profile.body.user.identity.contactName).toBeTruthy();

@@ -2,12 +2,18 @@ import "dotenv/config";
 
 const env = process.env;
 
+// Hardhat account #19: the local trusted issuer. Test key only; set ISSUER_PRIVATE_KEY in .env.
+const DEFAULT_ISSUER_KEY = "0xdf57089febbacf7ba0bc227dafbffa9fc08a93fdc68e1e42411a14efcf23656e";
+
 export const config = {
   port: Number(env.PORT || 4000),
+  // MongoDB (Atlas in development, mongodb-memory-server in tests). Never logged.
+  mongoUri: env.MONGODB_URI || "",
+  mongoDb: env.MONGODB_DB || "giglend",
   jwtSecret: env.JWT_SECRET || "dev-insecure-secret",
-  attesterKey:
-    env.ATTESTER_PRIVATE_KEY || "0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6",
-  idPepper: env.ID_PEPPER || "dev-pepper",
+  issuerKey: env.ISSUER_PRIVATE_KEY || DEFAULT_ISSUER_KEY,
+  // 32 bytes, hex. Encrypts stored identifiers and derives the per-identity hash salt.
+  idEncryptionKey: env.ID_ENCRYPTION_KEY || "",
   rpcUrl: env.RPC_URL || "http://127.0.0.1:8545",
   chainId: Number(env.CHAIN_ID || 31337),
   siweDomain: env.SIWE_DOMAIN || "localhost:5173",
@@ -17,6 +23,7 @@ export const config = {
   authRateLimit: Number(env.AUTH_RATE_LIMIT || 60),
   uploadsDir: env.UPLOADS_DIR || "uploads",
   attestationValidityDays: Number(env.ATTESTATION_VALIDITY_DAYS || 365),
+  indexerStartBlock: Number(env.INDEXER_START_BLOCK || 0),
   // Wallets treated as admins in the UI (on-chain roles are still enforced by the contracts).
   adminWallets: (env.ADMIN_WALLETS || "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
     .split(",")
@@ -31,6 +38,9 @@ export const config = {
     MockPayoutRouter: env.PAYOUT_ROUTER_ADDRESS || "",
     PolicyConfig: env.POLICY_CONFIG_ADDRESS || "",
     CreditScore: env.CREDIT_SCORE_ADDRESS || "",
+    GLPToken: env.GLP_TOKEN_ADDRESS || "",
+    ReserveFund: env.RESERVE_FUND_ADDRESS || "",
+    DefaulterGovernance: env.GOVERNANCE_ADDRESS || "",
   },
 };
 

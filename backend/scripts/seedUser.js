@@ -1,11 +1,11 @@
 // Seeds a fully verified, on-chain-registered member through the real HTTP API.
-// Local demo only: it uses a Hardhat test key and reads the mock OTP from the database
+// Local demo only: it uses a Hardhat test key and reads the mock OTP from the MongoDB
 // side channel (it re-issues the OTP itself, since only hashes are stored).
 //
 // Usage: node scripts/seedUser.js <hardhatPrivateKey> <PAN> [name] [weekly|biweekly]
 import { ethers } from "ethers";
 import { SiweMessage } from "siwe";
-import { prisma } from "../src/db.js";
+import { connectDb, disconnectDb } from "../src/db.js";
 import { issueOtp } from "../src/services/otp.js";
 import { config } from "../src/config.js";
 
@@ -57,6 +57,7 @@ export async function seedUser({
   declaredDebts = [],
   register = true,
 }) {
+  await connectDb(); // the mock OTP is re-issued straight into the database
   const provider = new ethers.JsonRpcProvider(config.rpcUrl);
   const wallet = new ethers.Wallet(privateKey, provider);
   const call = cookieJar();
@@ -127,11 +128,11 @@ if (process.argv[1]?.endsWith("seedUser.js")) {
   seedUser({ privateKey, pan, name, payoutFrequency: freq })
     .then((r) => {
       console.log(JSON.stringify({ ...r, memberId: r.memberId.toString() }, null, 2));
-      return prisma.$disconnect();
+      return disconnectDb();
     })
     .catch(async (err) => {
       console.error(err.message);
-      await prisma.$disconnect();
+      await disconnectDb();
       process.exit(1);
     });
 }

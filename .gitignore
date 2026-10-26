@@ -6,3 +6,4 @@ cache/
 coverage/
 .manual-build/
 scratch/
+backend/.env

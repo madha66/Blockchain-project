@@ -2,16 +2,15 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import multer from "multer";
 import { z } from "zod";
-import { prisma } from "../db.js";
+import { Consent, GigProfile, Identity, User } from "../models.js";
 import { ah, requireSession, setSession } from "../middleware/auth.js";
 import { issueOtp, verifyOtp } from "../services/otp.js";
 import { verifySiwe } from "../services/siwe.js";
 import { logAuthEvent } from "../services/audit.js";
 import { computeStep, refreshStep } from "../services/signupState.js";
-import { PAN_REGEX, idHashFor, maskPan, normalisePan, storeEncryptedSelfie } from "../services/identity.js";
+import { PAN_REGEX, idHashFor, normalisePan, storeEncryptedSelfie } from "../services/identity.js";
+import { resolveIdentity } from "../services/identityStore.js";
 import { assessIncome, totalDeclaredDebtInr } from "../services/income.js";
-import { clusterIdFor, isoWeekCohort } from "../services/cohort.js";
-import { pickContact } from "../services/contacts.js";
 import { buildAttestation } from "../services/attestationBuilder.js";
 import { config } from "../config.js";
 import { publicUser } from "./serialise.js";
@@ -54,17 +53,15 @@ export function signupRoutes({ chain }) {
     "/account",
     ah(async (req, res) => {
       const body = accountSchema.parse(req.body);
-      const clash = await prisma.user.findFirst({ where: { OR: [{ email: body.email }, { phone: body.phone }] } });
+      const clash = await User.findOne({ $or: [{ email: body.email }, { phone: body.phone }] });
       if (clash) return res.status(409).json({ error: "ACCOUNT_EXISTS" });
 
-      const user = await prisma.user.create({
-        data: {
-          name: body.name,
-          email: body.email,
-          phone: body.phone,
-          passwordHash: await bcrypt.hash(body.password, 10),
-          deviceHash: req.get("x-device-fingerprint")?.slice(0, 128) || null,
-        },
+      const user = await User.create({
+        name: body.name,
+        email: body.email,
+        phone: body.phone,
+        passwordHash: await bcrypt.hash(body.password, 10),
+        deviceHash: req.get("x-device-fingerprint")?.slice(0, 128) || null,
       });
       const code = await issueOtp(user.id, "signup");
       setSession(res, user.id, "signup");
@@ -80,7 +77,7 @@ export function signupRoutes({ chain }) {
       const { code } = z.object({ code: z.string().regex(/^\d{6}$/) }).parse(req.body);
       const result = await verifyOtp(req.user.id, "signup", code);
       if (!result.ok) return res.status(400).json({ error: result.reason });
-      await prisma.user.update({ where: { id: req.user.id }, data: { contactVerified: true } });
+      await User.updateOne({ _id: req.user._id }, { contactVerified: true });
       await logAuthEvent("signup_otp_verified", req.user.id);
       res.json({ step: await refreshStep(req.user.id) });
     })
@@ -108,18 +105,19 @@ export function signupRoutes({ chain }) {
       if (req.user.wallet && req.user.wallet !== result.address) {
         return res.status(409).json({ error: "WALLET_ALREADY_LINKED" });
       }
-      const owner = await prisma.user.findUnique({ where: { wallet: result.address } });
+      const owner = await User.findOne({ wallet: result.address });
       if (owner && owner.id !== req.user.id) return res.status(409).json({ error: "WALLET_TAKEN" });
 
       // Re-linking after an unlink: the identity's active wallet follows, if it is free.
-      if (req.user.identityId) {
-        const identity = await prisma.identity.findUnique({ where: { id: req.user.identityId } });
-        if (identity.activeWallet && identity.activeWallet !== result.address) {
+      if (req.user.identity) {
+        const identity = await Identity.findById(req.user.identity);
+        if (identity.linkedWallet && identity.linkedWallet !== result.address) {
           return res.status(409).json({ error: "IDENTITY_WALLET_ACTIVE" });
         }
-        await prisma.identity.update({ where: { id: identity.id }, data: { activeWallet: result.address } });
+        identity.linkedWallet = result.address;
+        await identity.save();
       }
-      await prisma.user.update({ where: { id: req.user.id }, data: { wallet: result.address } });
+      await User.updateOne({ _id: req.user._id }, { wallet: result.address });
       await logAuthEvent("wallet_linked", req.user.id);
       res.json({ wallet: result.address, step: await refreshStep(req.user.id) });
     })
@@ -144,46 +142,27 @@ export function signupRoutes({ chain }) {
         .parse(req.body);
       if (!req.file) return res.status(400).json({ error: "SELFIE_REQUIRED" });
 
-      const idHash = idHashFor(body.pan);
-      let identity = await prisma.identity.findUnique({ where: { idHash } });
-      let inherited = false;
-
-      if (identity) {
-        if (req.user.identityId !== identity.id) {
-          if (identity.activeWallet && identity.activeWallet !== req.user.wallet) {
-            await logAuthEvent("kyc_identity_wallet_active", req.user.id);
-            return res.status(409).json({ error: "IDENTITY_WALLET_ACTIVE" });
-          }
-          inherited = true;
+      if (req.user.identity) {
+        const current = await Identity.findById(req.user.identity);
+        if (current && current.identityHash !== idHashFor(body.pan)) {
+          return res.status(409).json({ error: "KYC_ALREADY_DONE" });
         }
-        identity = await prisma.identity.update({
-          where: { id: identity.id },
-          data: { activeWallet: req.user.wallet, selfiePath: storeEncryptedSelfie(req.file.buffer, identity.id) },
-        });
-      } else {
-        if (req.user.identityId) return res.status(409).json({ error: "KYC_ALREADY_DONE" });
-        const contact = await pickContact();
-        identity = await prisma.identity.create({
-          data: {
-            idHash,
-            panMasked: maskPan(body.pan),
-            aadhaarRef: body.aadhaarRef,
-            clusterId: clusterIdFor({
-              phone: req.user.phone,
-              deviceHash: req.user.deviceHash,
-              fundingWallet: req.user.fundingWallet,
-            }),
-            cohortId: isoWeekCohort(req.user.createdAt),
-            activeWallet: req.user.wallet,
-            contactId: contact.id,
-          },
-        });
-        await prisma.identity.update({
-          where: { id: identity.id },
-          data: { selfiePath: storeEncryptedSelfie(req.file.buffer, identity.id) },
-        });
       }
-      await prisma.user.update({ where: { id: req.user.id }, data: { identityId: identity.id } });
+      // Banned and duplicate identities are refused here (IDENTITY_BANNED / IDENTITY_WALLET_ACTIVE).
+      const { identity, inherited: attached } = await resolveIdentity({
+        type: "pan",
+        value: body.pan,
+        wallet: req.user.wallet,
+        chain,
+        userId: req.user._id,
+        aadhaarRef: body.aadhaarRef,
+        cluster: { phone: req.user.phone, deviceHash: req.user.deviceHash, fundingWallet: req.user.fundingWallet },
+        createdAt: req.user.createdAt,
+      });
+      const inherited = attached && String(req.user.identity) !== String(identity._id);
+      identity.selfiePath = storeEncryptedSelfie(req.file.buffer, identity.id);
+      await identity.save();
+      await User.updateOne({ _id: req.user._id }, { identity: identity._id, identityHash: identity.identityHash });
       await logAuthEvent(inherited ? "kyc_identity_inherited" : "kyc_ok", req.user.id);
       res.json({ inherited, step: await refreshStep(req.user.id) });
     })
@@ -194,7 +173,7 @@ export function signupRoutes({ chain }) {
     "/income",
     session,
     ah(async (req, res) => {
-      if (!req.user.identityId) return res.status(400).json({ error: "KYC_FIRST" });
+      if (!req.user.identity) return res.status(400).json({ error: "KYC_FIRST" });
       const body = incomeSchema.parse(req.body);
       const assessed = assessIncome(body.monthlyPayouts);
       const data = {
@@ -202,13 +181,13 @@ export function signupRoutes({ chain }) {
         workerId: body.workerId,
         monthsActive: body.monthsActive,
         payoutFrequency: body.payoutFrequency,
-        monthlyPayoutsJson: JSON.stringify(body.monthlyPayouts),
-        declaredDebtsJson: JSON.stringify(body.declaredDebts),
+        monthlyPayouts: body.monthlyPayouts,
+        declaredDebts: body.declaredDebts,
         assessedMonthlyInr: assessed.assessedMonthlyInr,
         declaredDebtInr: Math.round(totalDeclaredDebtInr(body.declaredDebts)),
         stabilityBand: assessed.stabilityBand,
       };
-      await prisma.gigProfile.upsert({ where: { userId: req.user.id }, update: data, create: { userId: req.user.id, ...data } });
+      await GigProfile.updateOne({ user: req.user._id }, { $set: data }, { upsert: true });
       res.json({ ...assessed, declaredDebtInr: data.declaredDebtInr, step: await refreshStep(req.user.id) });
     })
   );
@@ -220,13 +199,12 @@ export function signupRoutes({ chain }) {
     ah(async (req, res) => {
       if ((await computeStep(req.user.id)) < 5) return res.status(400).json({ error: "PREVIOUS_STEPS_INCOMPLETE" });
       const body = consentSchema.parse(req.body);
-      await prisma.consent.createMany({
-        data: [
-          { userId: req.user.id, kind: "data_use", granted: true },
-          { userId: req.user.id, kind: "autopay", granted: body.autopay },
-          { userId: req.user.id, kind: "peer_visibility", granted: body.peerVisibility },
-        ],
-      });
+      const base = { user: req.user._id, wallet: req.user.wallet, timestamp: new Date() };
+      await Consent.insertMany([
+        { ...base, type: "data_use", granted: true },
+        { ...base, type: "autopay", granted: body.autopay },
+        { ...base, type: "peer_visibility", granted: body.peerVisibility },
+      ]);
       const step = await refreshStep(req.user.id);
       // The wallet was proven by SIWE in this session, so the session becomes a full login.
       setSession(res, req.user.id, "full");

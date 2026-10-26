@@ -1,14 +1,12 @@
 import { SiweMessage, generateNonce } from "siwe";
-import { prisma } from "../db.js";
+import { SiweNonce } from "../models.js";
 import { config } from "../config.js";
 
 const NONCE_TTL_MS = 5 * 60 * 1000;
 
 export async function createNonce(userId, purpose) {
   const nonce = generateNonce();
-  await prisma.siweNonce.create({
-    data: { nonce, userId, purpose, expiresAt: new Date(Date.now() + NONCE_TTL_MS) },
-  });
+  await SiweNonce.create({ nonce, user: userId, purpose, expiresAt: new Date(Date.now() + NONCE_TTL_MS) });
   return nonce;
 }
 
@@ -23,8 +21,8 @@ export async function verifySiwe({ message, signature, userId, purpose }) {
   } catch {
     return { ok: false, reason: "SIWE_MALFORMED" };
   }
-  const record = await prisma.siweNonce.findUnique({ where: { nonce: parsed.nonce } });
-  if (!record || record.userId !== userId || record.purpose !== purpose) return { ok: false, reason: "SIWE_NONCE_UNKNOWN" };
+  const record = await SiweNonce.findOne({ nonce: parsed.nonce });
+  if (!record || String(record.user) !== String(userId) || record.purpose !== purpose) return { ok: false, reason: "SIWE_NONCE_UNKNOWN" };
   if (record.usedAt) return { ok: false, reason: "SIWE_NONCE_USED" };
   if (record.expiresAt.getTime() < Date.now()) return { ok: false, reason: "SIWE_NONCE_EXPIRED" };
   if (parsed.domain !== config.siweDomain) return { ok: false, reason: "SIWE_DOMAIN_MISMATCH" };
@@ -36,6 +34,8 @@ export async function verifySiwe({ message, signature, userId, purpose }) {
   } catch {
     return { ok: false, reason: "SIWE_BAD_SIGNATURE" };
   }
-  await prisma.siweNonce.update({ where: { nonce: record.nonce }, data: { usedAt: new Date() } });
+  // Single use: only the first concurrent verifier marks it.
+  const marked = await SiweNonce.updateOne({ _id: record._id, usedAt: null }, { usedAt: new Date() });
+  if (marked.modifiedCount !== 1) return { ok: false, reason: "SIWE_NONCE_USED" };
   return { ok: true, address: parsed.address.toLowerCase() };
 }

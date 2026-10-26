@@ -3,7 +3,7 @@
 // registration). Run with the backend running, after deploy.js and before demoScenarios.js.
 //
 // Local demo only: the keys are Hardhat's public test keys.
-import { prisma } from "../src/db.js";
+import { connectDb, disconnectDb } from "../src/db.js";
 import { seedUser } from "./seedUser.js";
 
 const DEMO = [
@@ -23,4 +23,4 @@ for (const d of DEMO) {
     console.log(`${d.name.padEnd(13)} skipped: ${err.message}`);
   }
 }
-await prisma.$disconnect();
+await disconnectDb();

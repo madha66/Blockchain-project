@@ -1,5 +1,6 @@
 import { Router } from "express";
-import { prisma } from "../db.js";
+import mongoose from "mongoose";
+import { Notification } from "../models.js";
 import { ah, requireSession } from "../middleware/auth.js";
 
 /**
@@ -12,13 +13,11 @@ export function notificationRoutes() {
   r.get(
     "/",
     ah(async (req, res) => {
-      const items = await prisma.notification.findMany({
-        where: { userId: req.user.id, status: "sent" },
-        orderBy: { sentAt: "desc" },
-        take: 100,
-      });
+      const items = (await Notification.find({ user: req.user._id, status: "sent" }).sort({ sentAt: -1 }).limit(100)).map(
+        (n) => n.toJSON()
+      );
       const unread = items.filter((n) => !n.readAt).length;
-      const queued = await prisma.notification.count({ where: { userId: req.user.id, status: "queued" } });
+      const queued = await Notification.countDocuments({ user: req.user._id, status: "queued" });
       res.json({ items, unread, queued });
     })
   );
@@ -26,10 +25,9 @@ export function notificationRoutes() {
   r.post(
     "/:id/read",
     ah(async (req, res) => {
-      await prisma.notification.updateMany({
-        where: { id: req.params.id, userId: req.user.id },
-        data: { readAt: new Date() },
-      });
+      if (mongoose.isValidObjectId(req.params.id)) {
+        await Notification.updateOne({ _id: req.params.id, user: req.user._id }, { readAt: new Date() });
+      }
       res.json({ ok: true });
     })
   );
@@ -37,10 +35,7 @@ export function notificationRoutes() {
   r.post(
     "/read-all",
     ah(async (req, res) => {
-      await prisma.notification.updateMany({
-        where: { userId: req.user.id, status: "sent", readAt: null },
-        data: { readAt: new Date() },
-      });
+      await Notification.updateMany({ user: req.user._id, status: "sent", readAt: null }, { readAt: new Date() });
       res.json({ ok: true });
     })
   );

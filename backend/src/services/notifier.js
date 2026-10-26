@@ -1,4 +1,4 @@
-import { prisma } from "../db.js";
+import { Contact, Identity, Notification, User } from "../models.js";
 import { GRIEVANCE_LINE } from "../config.js";
 
 export const CONTACT_START_HOUR = 8; // 08:00 local
@@ -64,6 +64,12 @@ const HELP_FIRST = {
     "If you think the classification is wrong, you can appeal within 21 days. Your Loans page shows a settlement amount that closes the balance today.",
   fast_climber:
     "You can keep borrowing at your current level. Larger amounts open up as more loans are repaid.",
+  debt_reminder:
+    "You can clear this balance from your Loans page, or start a hardship workout that spreads it into small installments with no interest.",
+  debt_reminder_2:
+    "If clearing the balance in one payment is hard, a hardship workout or a settlement quote on your Loans page can close it. You can also raise a dispute if you think the amount is wrong.",
+  expelled:
+    "You can still repay or settle from your Loans page at any time, and once the balance is cleared any member can propose your reinstatement. If you think this is wrong, you can raise a dispute within 7 days.",
   generic: "If you need help, reply from your Loans page and we will look at the options with you.",
 };
 
@@ -91,6 +97,9 @@ const TITLES = {
   defaulted: "Your loan has been marked as defaulted",
   defaulted_hardship: "Your loan has been marked as defaulted",
   fast_climber: "You are held at your current borrowing step",
+  debt_reminder: "You have an outstanding balance",
+  debt_reminder_2: "Second reminder: outstanding balance",
+  expelled: "Your membership has been suspended by a member vote",
 };
 
 /**
@@ -99,42 +108,46 @@ const TITLES = {
  */
 export async function enqueueNotice({ userId, kind, facts, dedupeKey, now = new Date() }) {
   if (dedupeKey) {
-    const existing = await prisma.notification.findUnique({ where: { dedupeKey } });
+    const existing = await Notification.findOne({ dedupeKey });
     if (existing) return existing;
   }
-  const user = await prisma.user.findUnique({ where: { id: userId }, include: { identity: { include: { contact: true } } } });
+  const user = await User.findById(userId);
   if (!user) throw new Error("Unknown user");
-  const contactName = user.identity?.contact?.name ?? "GigLend support";
+  const identity = user.identity ? await Identity.findById(user.identity) : null;
+  const contact = identity?.contact ? await Contact.findById(identity.contact) : null;
+  const contactName = contact?.name ?? "GigLend support";
   const { title, body } = composeMessage({ kind, contactName, facts, title: TITLES[kind] });
 
   const inWindow = isWithinContactHours(now, user.timezone);
-  const notice = await prisma.notification.create({
-    data: {
-      userId,
+  let notice;
+  try {
+    notice = await Notification.create({
+      user: user._id,
       kind,
       title,
       body,
       contactName,
-      dedupeKey: dedupeKey ?? null,
+      dedupeKey: dedupeKey ?? undefined,
       status: inWindow ? "sent" : "queued",
       scheduledFor: inWindow ? now : nextContactTime(now, user.timezone),
       sentAt: inWindow ? now : null,
-    },
-  });
+    });
+  } catch (err) {
+    // Two passes racing on the same key: keep the first.
+    if (err.code === 11000 && dedupeKey) return Notification.findOne({ dedupeKey });
+    throw err;
+  }
   if (inWindow) deliverMock(notice);
   return notice;
 }
 
 /** Sends queued notices whose window has opened. */
 export async function flushQueue(now = new Date()) {
-  const due = await prisma.notification.findMany({
-    where: { status: "queued", scheduledFor: { lte: now } },
-    include: { user: true },
-  });
+  const due = await Notification.find({ status: "queued", scheduledFor: { $lte: now } }).populate("user");
   let sent = 0;
   for (const n of due) {
-    if (!isWithinContactHours(now, n.user.timezone)) continue;
-    await prisma.notification.update({ where: { id: n.id }, data: { status: "sent", sentAt: now } });
+    if (!isWithinContactHours(now, n.user?.timezone ?? "Asia/Kolkata")) continue;
+    await Notification.updateOne({ _id: n._id }, { status: "sent", sentAt: now });
     deliverMock(n);
     sent += 1;
   }
@@ -144,11 +157,11 @@ export async function flushQueue(now = new Date()) {
 /** Deletes only messages older than the 6-month retention period. */
 export async function purgeExpired(now = new Date()) {
   const cutoff = new Date(now.getTime() - RETENTION_DAYS * 86400 * 1000);
-  const { count } = await prisma.notification.deleteMany({ where: { createdAt: { lt: cutoff } } });
-  return count;
+  const { deletedCount } = await Notification.deleteMany({ createdAt: { $lt: cutoff } });
+  return deletedCount;
 }
 
 function deliverMock(n) {
   // Mock email/SMS channel: user ID only, never contact details.
-  console.log(`[mock-notice] user=${n.userId} kind=${n.kind} title="${n.title}"`);
+  console.log(`[mock-notice] user=${n.user?._id ?? n.user} kind=${n.kind} title="${n.title}"`);
 }

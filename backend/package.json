@@ -4,16 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "prisma db push --skip-generate && node --watch src/server.js",
-    "start": "prisma db push --skip-generate && node src/server.js",
-    "db:push": "prisma db push",
-    "db:reset": "prisma db push --force-reset --skip-generate",
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "indexer": "node scripts/indexer.js",
+    "db:ping": "node scripts/dbPing.js",
+    "db:reset": "node scripts/dbReset.js",
     "seed:demo": "node scripts/seedDemo.js",
-    "postinstall": "prisma generate",
     "test": "vitest run"
   },
   "dependencies": {
-    "@prisma/client": "^5.22.0",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
@@ -22,19 +21,18 @@
     "express": "^4.22.3",
     "express-rate-limit": "^7.5.1",
     "jsonwebtoken": "^9.0.3",
+    "mongoose": "^8.24.7",
     "multer": "^1.4.4",
     "siwe": "^2.3.2",
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "prisma": "^5.22.0",
+    "mongodb-memory-server": "^10.4.3",
     "supertest": "^7.3.1",
     "vitest": "^2.1.9"
   },
   "allowScripts": {
-    "@prisma/client@5.22.0": true,
-    "@prisma/engines@5.22.0": true,
     "esbuild@0.21.5": true,
-    "prisma@5.22.0": true
+    "mongodb-memory-server@10.4.3": true
   }
 }

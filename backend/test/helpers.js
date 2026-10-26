@@ -3,12 +3,15 @@ import request from "supertest";
 import { ethers } from "ethers";
 import { SiweMessage } from "siwe";
 import { createApp } from "../src/app.js";
-import { prisma } from "../src/db.js";
+import mongoose from "mongoose";
 
 export const fakeChain = (overrides = {}) => ({
   now: async () => Math.floor(Date.now() / 1000),
   hasOpenLoanForIdHash: async () => false,
   memberIdForIdHash: async () => 0n,
+  isIdentityBanned: async () => false,
+  identityOf: async () => null,
+  walletStatus: async () => ({ memberId: "0", verified: false, banned: false, expelled: false, identityHash: null, outstandingWei: "0", settlementQuoteWei: "0" }),
   ...overrides,
 });
 
@@ -30,15 +33,8 @@ export async function closeServers() {
 }
 
 export async function resetDb() {
-  await prisma.notification.deleteMany();
-  await prisma.attestationRecord.deleteMany();
-  await prisma.consent.deleteMany();
-  await prisma.gigProfile.deleteMany();
-  await prisma.otp.deleteMany();
-  await prisma.siweNonce.deleteMany();
-  await prisma.authEvent.deleteMany();
-  await prisma.user.deleteMany();
-  await prisma.identity.deleteMany();
+  const collections = await mongoose.connection.db.collections();
+  await Promise.all(collections.map((c) => c.deleteMany({})));
 }
 
 let counter = 0;
